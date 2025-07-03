@@ -2,30 +2,36 @@ import socket
 import ssl
 import gzip
 import tkinter
-
+from tkinter import BOTH
+from tkinter import *
 
 WIDTH, HEIGHT = 800, 600
 WIDTH, HEIGHT = 800, 600
 HSTEP, VSTEP = 13, 18
 SCROLL_STEP = 100
-
 cache = {}
 
 class URL:
     def __init__(self, url):
         self.url_string = url 
+        # file page 
         if url.startswith("file://"):
             self.scheme = "file"
             self.path = url[len("file://"):]
             if self.path == "":
                 self.path = "/"
             return
-        
+        # custom html page
         if url.startswith("data:text/html,"):
             self.scheme = "data"
             self.data = url[len("data:text/html,"):]
             return
-        
+        #about blank page
+        if url.startswith("about:blank"):
+            self.scheme = "about-blank"
+            # self.data = ""
+            return 
+        # view source page
         if url.startswith("view-source:"):
             self.scheme = "view-source"
             inner = url[len("view-source:"):]
@@ -33,7 +39,7 @@ class URL:
                 inner = "http://" + inner
             self.inner_url = URL(inner)            
             return 
-        
+        # normal http, https rendering
         self.scheme, url = url.split("://", 1)
         assert self.scheme in ["http", "https"]
         if "/" not in url:
@@ -44,12 +50,13 @@ class URL:
             self.port = 80
         elif self.scheme == "https":
             self.port = 443
-
+        # custom port 
         if ":" in self.host:
             self.host, port = self.host.split(":", 1)
             self.port = int(port)
-    
+    # request definition
     def request(self, redirect_count=0):
+        # caching
         if self.scheme in ["http", "https"] and self.url_string in cache:
             return cache[self.url_string]["content"]
 
@@ -71,22 +78,32 @@ class URL:
         # return html data you inputted   
         if self.scheme == "data":
             return self.data
+
         # starting connection 
         s = socket.socket(
             family=socket.AF_INET, 
             type=socket.SOCK_STREAM,
             proto=socket.IPPROTO_TCP,
         )
-        s.connect((self.host, self.port))
+        try: 
+            s.connect((self.host, self.port))
+        except: 
+            return URL("about:blank").request()
+        
+        if self.scheme == "about-blank":
+            return ""
+        
         if self.scheme == "https":
             ctx = ssl.create_default_context()
             s = ctx.wrap_socket(s, server_hostname=self.host)
+        # headers for request
         headers = {
         "Host": self.host,
         "Connection": "close",
-        "User-Agent": "MySimpleBrowser/1.0",
+        "User-Agent": "MySimpleBrowser/1.1",
         "Accept-Encoding": "gzip",
         }
+        # request itself
         request = "GET {} HTTP/1.1\r\n".format(self.path)
         for header, value in headers.items():
             request += f"{header}: {value}\r\n"
@@ -97,6 +114,7 @@ class URL:
         statusline = response.readline().decode("utf8")
         version, status, explanation = statusline.split(" ", 2)
         response_headers = {}
+        # read normal utf8 data 
         while True:
             line = response.readline().decode("utf8")
             if line == "\r\n": break
@@ -175,11 +193,15 @@ def layout(text):
     display_list = []
     cursor_x, cursor_y = HSTEP, VSTEP
     for c in text:
-        display_list.append((cursor_x, cursor_y, c))
-        cursor_x += HSTEP
-        if cursor_x >= WIDTH - HSTEP:
-            cursor_y += VSTEP
+        if c == "\n":
+            cursor_y += VSTEP * 2
             cursor_x = HSTEP
+        else: 
+            display_list.append((cursor_x, cursor_y, c))
+            cursor_x += HSTEP
+            if cursor_x >= WIDTH - HSTEP:
+                cursor_y += VSTEP
+                cursor_x = HSTEP
     return display_list
 
 class Browser:
@@ -196,20 +218,42 @@ class Browser:
             width=WIDTH,
             height=HEIGHT,
         )
-        self.canvas.pack()
+        self.canvas.pack(fill=BOTH, expand=1,)
         self.scroll = 0
+        self.window.bind("<Configure>", self.on_resize)
+        self.window.bind("<MouseWheel>", self.on_mousewheel)
+        self.window.bind("<Up>", self.scrollup)
         self.window.bind("<Down>", self.scrolldown)
 
     def load(self, url):
         body = url.request()
         text = lex(body)
+        self.text = text
         self.display_list = layout(text)
         self.draw()
 
     def scrolldown(self, e):
         self.scroll += SCROLL_STEP
         self.draw()
+    def scrollup(self, e):
+        self.scroll -=SCROLL_STEP
+        self.draw()
+    
+    def on_resize(self, event):
+        global WIDTH
+        global HEIGHT
+        WIDTH = event.width
+        HEIGHT = event.height
+        if hasattr(self, "display_list"):
+            self.display_list = layout(self.text)
+            self.draw()
 
+    def on_mousewheel(self, event):
+        if event.delta > 0:
+            self.scrollup(event)
+        else:
+            self.scrolldown(event)
+            
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1:
