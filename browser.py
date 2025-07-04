@@ -38,7 +38,7 @@ class URL:
             if "://" not in inner:
                 inner = "http://" + inner
             self.inner_url = URL(inner)            
-            return 
+            return
         # normal http, https rendering
         try:
             self.scheme, url = url.split("://", 1)
@@ -234,6 +234,7 @@ class Browser:
                     fill="blue"
                 )
     def __init__(self):
+        self.emoji_cache = {}
         self.window = tkinter.Tk()
         self.canvas = tkinter.Canvas(
             self.window,
