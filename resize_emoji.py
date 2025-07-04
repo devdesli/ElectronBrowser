@@ -17,7 +17,7 @@ for filename in os.listdir(SOURCE_DIR):
 
         try:
             img = Image.open(src_path)
-            img = img.resize((16, 16), Image.ANTIALIAS)
+            img = img.resize((16, 16), Image.LANCZOS)
             img.save(dst_path)
             print(f"Resized: {filename}")
         except Exception as e:

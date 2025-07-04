@@ -4,6 +4,19 @@ import gzip
 import tkinter
 from tkinter import BOTH
 from tkinter import *
+import os 
+import tkinter.font
+
+class Text:
+    def __init__(self, text):
+        self.text = text
+
+class Tag:
+    def __init__(self, tag):
+        self.tag = tag
+
+def emoji_filename(c):
+    return os.path.join("resized_emojis", f"emoji_{ord(c):04X}_16x16.png")
 
 WIDTH, HEIGHT = 800, 600
 WIDTH, HEIGHT = 800, 600
@@ -165,64 +178,142 @@ class URL:
         s.close()
         return content
 
-def lex(body):
-    if url.scheme == "about-blank":
-        text = "Error rendering page"
-        return text
-    body = body.replace("&lt;", "<").replace("&gt;", ">")
-    in_tag = False
-    text = ""
-    for c in body:
-        if c == "<":
-            in_tag = True
-        elif c == ">":
-            in_tag = False
-        elif not in_tag:
-            text += c
-    return text
-
-# show html page content by printing
-#def show(body):
-    body = body.replace("&lt;", "<").replace("&gt;", ">")
+def lex(body, url_scheme): # Add url_scheme parameter
+    # error route
+    if url_scheme == "about-blank": # Use url_scheme
+        return [Text("Error rendering page")] # Return a list containing a Text object
+    
+    out = []
+    buffer = ""
     in_tag = False
     for c in body:
         if c == "<":
             in_tag = True
+            if buffer: out.append(Text(buffer))
+            buffer = ""
         elif c == ">":
             in_tag = False
-        elif not in_tag:
-            print(c, end="")
+            out.append(Tag(buffer))
+            buffer = ""
+        else:
+            buffer += c
+    if not in_tag and buffer:
+        out.append(Text(buffer))
+    return out
 
-#def load(url):
-    body = url.request()
-    show(body)
+def is_emoji(c):
+    code = ord(c)
+    return 0x1F300 <= code <= 0x1FAFF or 0x2600 <= code <= 0x26FF or 0x2700 <= code <= 0x27BF
 
-def layout(text):
+# word based layout 
+def layout(tokens, rtl=False):
     display_list = []
-    cursor_x, cursor_y = HSTEP, VSTEP
-    for c in text:
-        if c == "\n":
-            cursor_y += VSTEP * 2
-            cursor_x = HSTEP
-        else: 
-            display_list.append((cursor_x, cursor_y, c))
-            cursor_x += HSTEP
-            if cursor_x >= WIDTH - HSTEP:
-                cursor_y += VSTEP
-                cursor_x = HSTEP
+    cursor_y = VSTEP
+    cursor_x = WIDTH - HSTEP if rtl else HSTEP
+
+    # Initialize styling variables
+    weight = "normal"
+    style = "roman"
+
+    for tok in tokens: # Iterate over the tokens (Text or Tag objects)
+        if isinstance(tok, Text):
+            current_font = tkinter.font.Font(size=16, weight=weight, slant=style) # Create font for this text block
+
+            # Split the text by actual newline characters first
+            lines = tok.text.split('\n')
+            lines = tok.text.replace("@lt;", "<").replace("@gt;", ">")
+
+            for i, line_content in enumerate(lines):
+                words = line_content.split() # Split the line segment into words
+
+                # If it's an empty line (e.g., from consecutive \n or a line that's just spaces)
+                if not words and line_content.strip() == '':
+                    if i > 0 or line_content != '':
+                         cursor_y += VSTEP # Move down for an explicit empty line
+                    cursor_x = WIDTH - HSTEP if rtl else HSTEP # Reset x for the new line
+                    continue # Skip to the next line_content
+                
+                elif tok == "br" or tok == "p" or tok == "div":
+                    cursor_y += VSTEP
+                    cursor_x = WIDTH - HSTEP if rtl else HSTEP
+
+                for word in words:
+                    w = current_font.measure(word) # Use current_font to measure word
+
+                    # Check if word fits on current line, considering direction
+                    if rtl:
+                        # If word doesn't fit, move to a new line
+                        if cursor_x - w < HSTEP:
+                            cursor_y += VSTEP
+                            cursor_x = WIDTH - HSTEP # Reset x for RTL new line
+                        
+                        # Place each character in the word (RTL: right to left)
+                        for c in word:
+                            char_kind = "emoji" if is_emoji(c) else "text"
+                            char_step = 16 if char_kind == "emoji" else current_font.measure(c) # Use current_font
+                            cursor_x -= char_step
+                            display_list.append((cursor_x, cursor_y, c, char_kind, current_font)) # Add font
+                        
+                        # Add space after word (if not the last word in the line)
+                        if word != words[-1]: # Only add space if not the last word in the current line_content segment
+                            cursor_x -= current_font.measure(' ') 
+                    else: # LTR
+                        # If word doesn't fit, move to a new line
+                        if cursor_x + w > WIDTH - HSTEP:
+                            cursor_y += VSTEP
+                            cursor_x = HSTEP # Reset x for LTR new line
+                        
+                        # Place each character in the word (LTR: left to right)
+                        for c in word:
+                            char_kind = "emoji" if is_emoji(c) else "text"
+                            char_step = 16 if char_kind == "emoji" else current_font.measure(c) # Use current_font
+                            display_list.append((cursor_x, cursor_y, c, char_kind, current_font)) # Add font
+                            cursor_x += char_step
+                        
+                        # Add space after word (if not the last word in the line)
+                        if word != words[-1]: # Only add space if not the last word in the current line_content segment
+                            cursor_x += current_font.measure(' ')
+
+                if i < len(lines) - 1: # If this is not the last line segment, implicitly means there was a \n
+                    cursor_y += VSTEP # Move down for the explicit newline
+                    cursor_x = WIDTH - HSTEP if rtl else HSTEP # Reset x for the new line
+
+        elif isinstance(tok, Tag): # Handle Tag objects
+            if tok.tag == "i":
+                style = "italic"
+            elif tok.tag == "/i":
+                style = "roman"
+            elif tok.tag == "b":
+                weight = "bold"
+            elif tok.tag == "/b":
+                weight = "normal"
     return display_list
+
 
 class Browser:
     def draw(self):
         self.canvas.delete("all")
         # draw characters
-        for x, y, c in self.display_list:
+        for x, y, c, kind, font in self.display_list:
             if y > self.scroll + HEIGHT: continue
             if y + VSTEP < self.scroll: continue
-            self.canvas.create_text(x, y - self.scroll, text=c)
-        # draw scrollbar 
+            if kind == "emoji":
+                filename = emoji_filename(c)
+                if filename not in self.emoji_cache:
+                    if os.path.exists(filename):
+                        img = tkinter.PhotoImage(file=filename)
+                        self.emoji_cache[filename] = img
+                    else:
+                        self.emoji_cache[filename] = None
+                if self.emoji_cache[filename]:
+                    self.canvas.create_image(x, y - self.scroll, anchor="nw", image=self.emoji_cache[filename])
+                else:
+                    self.canvas.create_text(x, y - self.scroll, text=c, font=font) # Use the font here for non-emoji
+            else:
+                self.canvas.create_text(x, y - self.scroll, text=c, font=font) # Use the font here
+        # draw scrollbar
         if self.display_list:
-            max_y = max(y for x, y, c in self.display_list)
+            max_y = max(y for x, y, c, kind, font in self.display_list)
             doc_height = max_y + VSTEP
             if doc_height > HEIGHT:
                 bar_height = HEIGHT * HEIGHT // doc_height
@@ -233,8 +324,9 @@ class Browser:
                     bar_left + 10, bar_top + bar_height,
                     fill="blue"
                 )
-    def __init__(self):
+    def __init__(self, rtl=False):
         self.emoji_cache = {}
+        self.rtl = rtl
         self.window = tkinter.Tk()
         self.canvas = tkinter.Canvas(
             self.window,
@@ -251,15 +343,14 @@ class Browser:
 
     def load(self, url):
         body = url.request()
-        text = lex(body)
-        self.text = text
-        self.display_list = layout(text)
+        self.tokens = lex(body, url.scheme) # Pass url.scheme to lex
+        self.display_list = layout(self.tokens, rtl=self.rtl)
         self.draw()
 
     def scrolldown(self, e):
         self.scroll += SCROLL_STEP
         if self.display_list:
-            max_y = max(y for x, y, c in self.display_list)
+            max_y = max(y for x, y, c, kind, font in self.display_list)
             doc_height = max_y + VSTEP
             max_scroll = max(0, doc_height - HEIGHT)
             if self.scroll > max_scroll:
@@ -268,6 +359,12 @@ class Browser:
 
     def scrollup(self, e):
         self.scroll -=SCROLL_STEP
+        if self.display_list:
+            max_y = max(y for x, y, c, kind, font in self.display_list)
+            doc_height = max_y + VSTEP
+            max_scroll = max(0, doc_height - HEIGHT)
+            if self.scroll > max_scroll:
+                self.scroll = max_scroll
         if self.scroll < 0:
             self.scroll = 0
         self.draw()
@@ -277,8 +374,8 @@ class Browser:
         global HEIGHT
         WIDTH = event.width
         HEIGHT = event.height
-        if hasattr(self, "display_list"):
-            self.display_list = layout(self.text)
+        if hasattr(self, "tokens"):
+            self.display_list = layout(self.tokens, rtl=self.rtl)
             self.draw()
 
     def on_mousewheel(self, event):
@@ -289,13 +386,16 @@ class Browser:
             
 if __name__ == "__main__":
     import sys
-    if len(sys.argv) > 1:
-        url = URL(sys.argv[1])
+    rtl = False
+    args = sys.argv[1:]
+    if "--rtl" in args:
+        rtl = True
+        args.remove("--rtl")
+    if args:
+        url = URL(args[0])
     else:
         url = URL("file:///C:/Users/desli/Documents/projects/Webbrowser/test.html")
-    # Choose one: GUI or terminal output
-    # For GUI:
-    browser = Browser()
+    browser = Browser(rtl=rtl)
     browser.load(url)
     tkinter.mainloop()
     # For terminal:
