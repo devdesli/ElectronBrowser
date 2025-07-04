@@ -40,20 +40,24 @@ class URL:
             self.inner_url = URL(inner)            
             return 
         # normal http, https rendering
-        self.scheme, url = url.split("://", 1)
-        assert self.scheme in ["http", "https"]
-        if "/" not in url:
-            url = url + "/"
-        self.host, url = url.split("/", 1)
-        self.path = "/" + url
-        if self.scheme == "http":
-            self.port = 80
-        elif self.scheme == "https":
-            self.port = 443
-        # custom port 
-        if ":" in self.host:
-            self.host, port = self.host.split(":", 1)
-            self.port = int(port)
+        try:
+            self.scheme, url = url.split("://", 1)
+            assert self.scheme in ["http", "https"]
+            if "/" not in url:
+                url = url + "/"
+            self.host, url = url.split("/", 1)
+            self.path = "/" + url
+            if self.scheme == "http":
+                self.port = 80
+            elif self.scheme == "https":
+                self.port = 443
+            # custom port 
+            if ":" in self.host:
+                self.host, port = self.host.split(":", 1)
+                self.port = int(port)
+        except Exception as e:
+            self.scheme = "about-blank"
+
     # request definition
     def request(self, redirect_count=0):
         # caching
@@ -88,7 +92,8 @@ class URL:
         try: 
             s.connect((self.host, self.port))
         except: 
-            return URL("about:blank").request()
+            self.scheme = "about-blank"
+            return URL("about:blank").request
         
         if self.scheme == "about-blank":
             return ""
@@ -161,6 +166,9 @@ class URL:
         return content
 
 def lex(body):
+    if url.scheme == "about-blank":
+        text = "Error rendering page"
+        return text
     body = body.replace("&lt;", "<").replace("&gt;", ">")
     in_tag = False
     text = ""
@@ -207,10 +215,24 @@ def layout(text):
 class Browser:
     def draw(self):
         self.canvas.delete("all")
+        # draw characters
         for x, y, c in self.display_list:
             if y > self.scroll + HEIGHT: continue
             if y + VSTEP < self.scroll: continue
             self.canvas.create_text(x, y - self.scroll, text=c)
+        # draw scrollbar 
+        if self.display_list:
+            max_y = max(y for x, y, c in self.display_list)
+            doc_height = max_y + VSTEP
+            if doc_height > HEIGHT:
+                bar_height = HEIGHT * HEIGHT // doc_height
+                bar_top = self.scroll * HEIGHT // doc_height
+                bar_left = WIDTH - 10
+                self.canvas.create_rectangle(
+                    bar_left, bar_top,
+                    bar_left + 10, bar_top + bar_height,
+                    fill="blue"
+                )
     def __init__(self):
         self.window = tkinter.Tk()
         self.canvas = tkinter.Canvas(
@@ -220,6 +242,7 @@ class Browser:
         )
         self.canvas.pack(fill=BOTH, expand=1,)
         self.scroll = 0
+        
         self.window.bind("<Configure>", self.on_resize)
         self.window.bind("<MouseWheel>", self.on_mousewheel)
         self.window.bind("<Up>", self.scrollup)
@@ -234,9 +257,18 @@ class Browser:
 
     def scrolldown(self, e):
         self.scroll += SCROLL_STEP
+        if self.display_list:
+            max_y = max(y for x, y, c in self.display_list)
+            doc_height = max_y + VSTEP
+            max_scroll = max(0, doc_height - HEIGHT)
+            if self.scroll > max_scroll:
+                self.scroll = max_scroll
         self.draw()
+
     def scrollup(self, e):
         self.scroll -=SCROLL_STEP
+        if self.scroll < 0:
+            self.scroll = 0
         self.draw()
     
     def on_resize(self, event):
