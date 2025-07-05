@@ -20,7 +20,8 @@ def emoji_filename(c):
 
 WIDTH, HEIGHT = 800, 600
 WIDTH, HEIGHT = 800, 600
-HSTEP, VSTEP = 13, 18
+HSTEP, VSTEP = 13, 20
+original_HSTEP, original_VSTEP = 13, 18
 SCROLL_STEP = 100
 cache = {}
 
@@ -205,6 +206,27 @@ def is_emoji(c):
     code = ord(c)
     return 0x1F300 <= code <= 0x1FAFF or 0x2600 <= code <= 0x26FF or 0x2700 <= code <= 0x27BF
 
+class Layout:
+    def __init__(self, tokens):
+        self.display_list = []
+        self.cursor_x = HSTEP
+        self.cursor_y = VSTEP
+        self.weight = "normal"
+        self.style = "roman"
+        for tok in tokens:
+            self.token(tok)
+    def token(self, tok):
+        if isinstance(tok, Text):
+            for word in tok.text.split():
+                pass
+    def word(self, word):
+        font = tkinter.font.Font(
+        size=16,
+        weight=self.weight,
+        slant=self.style,
+        )
+        w = font.measure(word)
+    # ...
 # word based layout 
 def layout(tokens, rtl=False):
     # need to add replacing for < and >
@@ -264,6 +286,7 @@ def layout(tokens, rtl=False):
                         if cursor_x + w > WIDTH - HSTEP:
                             cursor_y += VSTEP
                             cursor_x = HSTEP # Reset x for LTR new line
+                            
                         
                         # Place each character in the word (LTR: left to right)
                         for c in word:
