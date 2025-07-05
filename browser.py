@@ -207,6 +207,9 @@ def is_emoji(c):
 
 # word based layout 
 def layout(tokens, rtl=False):
+    # need to add replacing for < and >
+    # tokens = lex.body.replace("@lt;", "<").replace("@gt;", ">")
+
     display_list = []
     cursor_y = VSTEP
     cursor_x = WIDTH - HSTEP if rtl else HSTEP
@@ -221,7 +224,6 @@ def layout(tokens, rtl=False):
 
             # Split the text by actual newline characters first
             lines = tok.text.split('\n')
-            lines = tok.text.replace("@lt;", "<").replace("@gt;", ">")
 
             for i, line_content in enumerate(lines):
                 words = line_content.split() # Split the line segment into words
