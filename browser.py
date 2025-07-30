@@ -107,7 +107,7 @@ class URL:
             s.connect((self.host, self.port))
         except: 
             self.scheme = "about-blank"
-            return URL("about:blank").request
+            return URL("about:blank").request()
         
         if self.scheme == "about-blank":
             return ""
@@ -179,140 +179,185 @@ class URL:
         s.close()
         return content
 
-def lex(body, url_scheme): # Add url_scheme parameter
-    # error route
-    if url_scheme == "about-blank": # Use url_scheme
-        return [Text("Error rendering page")] # Return a list containing a Text object
+def decode_html_entities(text):
+    """
+    Decode common HTML entities to their character equivalents
+    """
+    # Common HTML entities
+    entities = {
+        '&lt;': '<',
+        '&gt;': '>',
+        '&amp;': '&',
+        '&quot;': '"',
+        '&apos;': "'",
+        '&#39;': "'",
+        '&nbsp;': ' ',  # Non-breaking space
+        '&copy;': '©',
+        '&reg;': '®',
+        '&trade;': '™',
+        '&hellip;': '…',
+        '&mdash;': '—',
+        '&ndash;': '–',
+        '&ldquo;': '"',
+        '&rdquo;': '"',
+        '&lsquo;': ''',
+        '&rsquo;': ''',
+    }
     
+    # Replace entities
+    for entity, char in entities.items():
+        text = text.replace(entity, char)
+    
+        return text
+    
+def lex(body, url_scheme):
+    # Error route
+    if url_scheme == "about-blank":
+        return [Text("Error rendering page")]
+    
+    body = decode_html_entities(body)
     out = []
     buffer = ""
     in_tag = False
+    
     for c in body:
         if c == "<":
             in_tag = True
-            if buffer: out.append(Text(buffer))
+            if buffer:  # Only add non-empty text
+                out.append(Text(buffer))
             buffer = ""
         elif c == ">":
             in_tag = False
-            out.append(Tag(buffer))
+            if buffer:  # Only add non-empty tags
+                out.append(Tag(buffer))
             buffer = ""
         else:
             buffer += c
-    if not in_tag and buffer:
-        out.append(Text(buffer))
+    
+    # Handle any remaining text after the loop
+    if buffer:
+        if in_tag:
+            # Unclosed tag - you might want to handle this as an error
+            out.append(Tag(buffer))
+        else:
+            out.append(Text(buffer))
+    
     return out
 
 def is_emoji(c):
     code = ord(c)
     return 0x1F300 <= code <= 0x1FAFF or 0x2600 <= code <= 0x26FF or 0x2700 <= code <= 0x27BF
 
+
 class Layout:
-    def __init__(self, tokens):
+    def __init__(self, tokens, rtl=False):
         self.display_list = []
-        self.cursor_x = HSTEP
+        self.cursor_x = WIDTH - HSTEP if rtl else HSTEP
         self.cursor_y = VSTEP
         self.weight = "normal"
         self.style = "roman"
+        self.size = 16
+        self.rtl = rtl
+        
         for tok in tokens:
             self.token(tok)
+    
     def token(self, tok):
         if isinstance(tok, Text):
-            for word in tok.text.split():
-                pass
-    def word(self, word):
-        font = tkinter.font.Font(
-        size=16,
-        weight=self.weight,
-        slant=self.style,
-        )
-        w = font.measure(word)
-    # ...
-# word based layout 
-def layout(tokens, rtl=False):
-    # need to add replacing for < and >
-    # tokens = lex.body.replace("@lt;", "<").replace("@gt;", ">")
-
-    display_list = []
-    cursor_y = VSTEP
-    cursor_x = WIDTH - HSTEP if rtl else HSTEP
-
-    # Initialize styling variables
-    weight = "normal"
-    style = "roman"
-
-    for tok in tokens: # Iterate over the tokens (Text or Tag objects)
-        if isinstance(tok, Text):
-            current_font = tkinter.font.Font(size=16, weight=weight, slant=style) # Create font for this text block
-
-            # Split the text by actual newline characters first
+            # Handle text tokens - split by newlines first
             lines = tok.text.split('\n')
-
+            
             for i, line_content in enumerate(lines):
-                words = line_content.split() # Split the line segment into words
-
-                # If it's an empty line (e.g., from consecutive \n or a line that's just spaces)
+                words = line_content.split()
+                
+                # Handle empty lines
                 if not words and line_content.strip() == '':
                     if i > 0 or line_content != '':
-                         cursor_y += VSTEP # Move down for an explicit empty line
-                    cursor_x = WIDTH - HSTEP if rtl else HSTEP # Reset x for the new line
-                    continue # Skip to the next line_content
+                        self.cursor_y += VSTEP
+                    self.cursor_x = WIDTH - HSTEP if self.rtl else HSTEP
+                    continue
                 
-                elif tok == "br" or tok == "p" or tok == "div":
-                    cursor_y += VSTEP
-                    cursor_x = WIDTH - HSTEP if rtl else HSTEP
-
-                for word in words:
-                    w = current_font.measure(word) # Use current_font to measure word
-
-                    # Check if word fits on current line, considering direction
-                    if rtl:
-                        # If word doesn't fit, move to a new line
-                        if cursor_x - w < HSTEP:
-                            cursor_y += VSTEP
-                            cursor_x = WIDTH - HSTEP # Reset x for RTL new line
-                        
-                        # Place each character in the word (RTL: right to left)
-                        for c in word:
-                            char_kind = "emoji" if is_emoji(c) else "text"
-                            char_step = 16 if char_kind == "emoji" else current_font.measure(c) # Use current_font
-                            cursor_x -= char_step
-                            display_list.append((cursor_x, cursor_y, c, char_kind, current_font)) # Add font
-                        
-                        # Add space after word (if not the last word in the line)
-                        if word != words[-1]: # Only add space if not the last word in the current line_content segment
-                            cursor_x -= current_font.measure(' ') 
-                    else: # LTR
-                        # If word doesn't fit, move to a new line
-                        if cursor_x + w > WIDTH - HSTEP:
-                            cursor_y += VSTEP
-                            cursor_x = HSTEP # Reset x for LTR new line
-                            
-                        
-                        # Place each character in the word (LTR: left to right)
-                        for c in word:
-                            char_kind = "emoji" if is_emoji(c) else "text"
-                            char_step = 16 if char_kind == "emoji" else current_font.measure(c) # Use current_font
-                            display_list.append((cursor_x, cursor_y, c, char_kind, current_font)) # Add font
-                            cursor_x += char_step
-                        
-                        # Add space after word (if not the last word in the line)
-                        if word != words[-1]: # Only add space if not the last word in the current line_content segment
-                            cursor_x += current_font.measure(' ')
-
-                if i < len(lines) - 1: # If this is not the last line segment, implicitly means there was a \n
-                    cursor_y += VSTEP # Move down for the explicit newline
-                    cursor_x = WIDTH - HSTEP if rtl else HSTEP # Reset x for the new line
-
-        elif isinstance(tok, Tag): # Handle Tag objects
+                # Process each word in the line
+                for word_idx, word in enumerate(words):
+                    self.word(word, is_last_word=(word_idx == len(words) - 1))
+                
+                # Handle newlines between line segments
+                if i < len(lines) - 1:
+                    self.cursor_y += VSTEP
+                    self.cursor_x = WIDTH - HSTEP if self.rtl else HSTEP
+                    
+        elif isinstance(tok, Tag):
+            # Handle tag tokens for styling
             if tok.tag == "i":
-                style = "italic"
+                self.style = "italic"
             elif tok.tag == "/i":
-                style = "roman"
+                self.style = "roman"
             elif tok.tag == "b":
-                weight = "bold"
+                self.weight = "bold"
             elif tok.tag == "/b":
-                weight = "normal"
-    return display_list
+                self.weight = "normal"
+            elif tok.tag == "small":
+                self.size -= 2
+            elif tok.tag == "/small":
+                self.size += 2
+            elif tok.tag == "big":
+                self.size += 4
+            elif tok.tag == "/big":
+                self.size -= 4
+            elif tok.tag == "br" or tok.tag == "p" or tok.tag == "div":
+                self.cursor_y += VSTEP
+                self.cursor_x = WIDTH - HSTEP if self.rtl else HSTEP
+    
+    def word(self, word, is_last_word=False):
+        font = tkinter.font.Font(
+            size=self.size,
+            weight=self.weight,
+            slant=self.style,
+        )
+        w = font.measure(word)
+        
+        # Check if word fits on current line, considering direction
+        if self.rtl:
+            # If word doesn't fit, move to a new line
+            if self.cursor_x - w < HSTEP:
+                self.cursor_y += VSTEP
+                self.cursor_x = WIDTH - HSTEP
+            
+            # Place each character in the word (RTL: right to left)
+            for c in word:
+                char_kind = "emoji" if is_emoji(c) else "text"
+                char_step = 16 if char_kind == "emoji" else font.measure(c)
+                self.cursor_x -= char_step
+                self.display_list.append((self.cursor_x, self.cursor_y, c, char_kind, font))
+            
+            # Add space after word (except for last word in line)
+            if not is_last_word:
+                self.cursor_x -= font.measure(' ')
+            
+        else: # LTR
+            # If word doesn't fit, move to a new line
+            if self.cursor_x + w > WIDTH - HSTEP:
+                self.cursor_y += VSTEP
+                self.cursor_x = HSTEP
+            
+            # Place each character in the word (LTR: left to right)
+            for c in word:
+                char_kind = "emoji" if is_emoji(c) else "text"
+                char_step = 16 if char_kind == "emoji" else font.measure(c)
+                self.display_list.append((self.cursor_x, self.cursor_y, c, char_kind, font))
+                self.cursor_x += char_step
+            
+            # Add space after word (except for last word in line)
+            if not is_last_word:
+                self.cursor_x += font.measure(' ')
+
+# Keep the old layout function for backward compatibility
+def layout(tokens, rtl=False):
+    """
+    function that creates a Layout instance and returns the display list.
+    """
+    layout_obj = Layout(tokens, rtl)
+    return layout_obj.display_list
 
 
 class Browser:
