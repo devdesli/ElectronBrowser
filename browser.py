@@ -3,18 +3,75 @@ import ssl
 import gzip
 import tkinter
 from tkinter import BOTH
-from tkinter import *
 import os 
 import tkinter.font
 
+FONTS = {}
+
+def get_font(size, weight, style):
+    key = (size, weight, style)
+    if key not in FONTS:
+        font = tkinter.font.Font(size=size, weight=weight, slant=style)
+        label = tkinter.Label(font=font)  # Tkinter font cache trick
+        FONTS[key] = (font, label)
+    return FONTS[key][0]
+
 class Text:
-    def __init__(self, text):
+    def __init__(self, text, parent):
         self.text = text
+        self.children = []
+        self.parent = parent
 
-class Tag:
-    def __init__(self, tag):
+class Element:
+    def __init__(self, tag, parent):
         self.tag = tag
+        self.children = []
+        self.parent = parent
 
+class HTMLParser:
+    def __init__(self, body):
+        self.body = body
+        self.unfinished = []
+    def add_text(self, text):
+        parent = self.unfinished[-1]
+        node = Text(text, parent)
+        parent.children.append(node)
+    def add_tag(self, tag):
+        if tag.startswith("/"):
+            if len(self.unfinished) == 1: return
+            node = self.unfinished.pop()
+            parent = self.unfinished[-1]
+            parent.children.append(node)
+        else:
+            parent = self.unfinished[-1] if self.unfinished else None
+            parent = self.unfinished[-1]
+            node = Element(tag, parent) 
+            self.unfinished.append(node)
+
+    def finish(self):
+        while len(self.unfinished.pop()) > 1:
+            node = self.unfinished.pop()
+            parent = self.unfinished[-1]
+            parent.children.append(node)
+        return self.unfinished.pop()
+    def parse(self):
+        text = ""
+        in_tag = False
+        for c in self.body:
+            if c == "<":
+                in_tag = True
+                if text: self.add_text(text)
+                text = ""
+            elif c == ">":
+                in_tag = False
+                self.add_tag(text)
+                text = ""
+            else:
+                text += c
+        if not in_tag and text:
+            self.add_text(text)
+        return self.finish()
+        
 def emoji_filename(c):
     return os.path.join("resized_emojis", f"emoji_{ord(c):04X}_16x16.png")
 
@@ -208,8 +265,8 @@ def decode_html_entities(text):
     for entity, char in entities.items():
         text = text.replace(entity, char)
     
-        return text
-    
+    return text
+
 def lex(body, url_scheme):
     # Error route
     if url_scheme == "about-blank":
@@ -258,37 +315,44 @@ class Layout:
         self.style = "roman"
         self.size = 16
         self.rtl = rtl
-        
+        self.centered = False  # Track if we are in centered mode
+        self.center_buffer = []  # Buffer for lines to center
         for tok in tokens:
             self.token(tok)
-    
+        # Flush any remaining centered lines
+        if self.centered and self.center_buffer:
+            self.flush_center_buffer()
+
     def token(self, tok):
         if isinstance(tok, Text):
-            # Handle text tokens - split by newlines first
             lines = tok.text.split('\n')
-            
             for i, line_content in enumerate(lines):
                 words = line_content.split()
-                
-                # Handle empty lines
                 if not words and line_content.strip() == '':
                     if i > 0 or line_content != '':
                         self.cursor_y += VSTEP
                     self.cursor_x = WIDTH - HSTEP if self.rtl else HSTEP
                     continue
-                
-                # Process each word in the line
-                for word_idx, word in enumerate(words):
-                    self.word(word, is_last_word=(word_idx == len(words) - 1))
-                
-                # Handle newlines between line segments
+                if self.centered:
+                    self.center_buffer.append((words, self.weight, self.style, self.size))
+                else:
+                    for word_idx, word in enumerate(words):
+                        self.word(word, is_last_word=(word_idx == len(words) - 1))
                 if i < len(lines) - 1:
+                    if self.centered:
+                        self.flush_center_buffer()
                     self.cursor_y += VSTEP
                     self.cursor_x = WIDTH - HSTEP if self.rtl else HSTEP
-                    
         elif isinstance(tok, Tag):
-            # Handle tag tokens for styling
-            if tok.tag == "i":
+            if tok.tag == 'h1 class="title"':
+                self.centered = True
+                self.center_buffer = []
+            elif tok.tag == '/h1':
+                if self.centered:
+                    self.flush_center_buffer()
+                self.centered = False
+            # ...existing code for other tags...
+            elif tok.tag == "i":
                 self.style = "italic"
             elif tok.tag == "/i":
                 self.style = "roman"
@@ -307,13 +371,29 @@ class Layout:
             elif tok.tag == "br" or tok.tag == "p" or tok.tag == "div":
                 self.cursor_y += VSTEP
                 self.cursor_x = WIDTH - HSTEP if self.rtl else HSTEP
-    
+
+    def flush_center_buffer(self):
+        # For each line in the buffer, center it
+        for words, weight, style, size in self.center_buffer:
+            font = get_font(size, weight, style)
+            line = ' '.join(words)
+            line_width = font.measure(line)
+            x = (WIDTH - line_width) // 2
+            cx = x
+            for word_idx, word in enumerate(words):
+                for c in word:
+                    char_kind = "emoji" if is_emoji(c) else "text"
+                    char_step = 16 if char_kind == "emoji" else font.measure(c)
+                    self.display_list.append((cx, self.cursor_y, c, char_kind, font))
+                    cx += char_step
+                if word_idx != len(words) - 1:
+                    cx += font.measure(' ')
+            self.cursor_y += VSTEP
+        self.center_buffer = []
+        self.cursor_x = WIDTH - HSTEP if self.rtl else HSTEP
+
     def word(self, word, is_last_word=False):
-        font = tkinter.font.Font(
-            size=self.size,
-            weight=self.weight,
-            slant=self.style,
-        )
+        font = get_font(self.size, self.weight, self.style)
         w = font.measure(word)
         
         # Check if word fits on current line, considering direction
@@ -378,9 +458,9 @@ class Browser:
                 if self.emoji_cache[filename]:
                     self.canvas.create_image(x, y - self.scroll, anchor="nw", image=self.emoji_cache[filename])
                 else:
-                    self.canvas.create_text(x, y - self.scroll, text=c, font=font) # Use the font here for non-emoji
+                    self.canvas.create_text(x, y - self.scroll, text=c, font=font, anchor="nw")
             else:
-                self.canvas.create_text(x, y - self.scroll, text=c, font=font) # Use the font here
+                self.canvas.create_text(x, y - self.scroll, text=c, font=font, anchor="nw")
         # draw scrollbar
         if self.display_list:
             max_y = max(y for x, y, c, kind, font in self.display_list)
