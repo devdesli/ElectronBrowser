@@ -1,0 +1,24 @@
+{
+  "name": "electronbrowser",
+  "version": "1.0.0",
+  "description": "an electron based browser made for homelabbers",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devdesli/ElectronBrowser.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/devdesli/ElectronBrowser/issues"
+  },
+  "homepage": "https://github.com/devdesli/ElectronBrowser#readme",
+  "devDependencies": {
+    "electron": "^37.2.6",
+    "electron-reload": "^2.0.0-alpha.1"
+  }
+}
