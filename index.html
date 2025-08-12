@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Electron Browser</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    #controls {
+      background: #f8f8f8;
+      padding: 10px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      border-bottom: 1px solid #ddd;
+    }
+    button {
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 6px 12px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s ease;
+    }
+    button:hover {
+      background: #f1f1f1;
+    }
+    webview {
+      flex: 1;
+      border: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <button id="backBtn" disabled>&larr; Back</button>
+    <button id="forwardBtn" disabled>Forward &rarr;</button>
+    <button id="reloadBtn">Reload</button>
+    <button id="devServerBtn">Open Dev Server</button>
+    <button id="heimdallBtn">Open Heimdall</button>
+  </div>
+  <webview id="webview" src="http://100.75.133.26:8090/" style="width:100%; height:100%;"></webview>
+
+  <script>
+    const webview = document.getElementById('webview');
+    const backBtn = document.getElementById('backBtn');
+    const forwardBtn = document.getElementById('forwardBtn');
+    const reloadBtn = document.getElementById('reloadBtn');
+    const devServerBtn = document.getElementById('devServerBtn');
+    const heimdallBtn = document.getElementById('heimdallBtn');
+
+    // Update nav buttons state
+    function updateNavButtons() {
+      webview.canGoBack().then(canGoBack => {
+        backBtn.disabled = !canGoBack;
+      });
+      webview.canGoForward().then(canGoForward => {
+        forwardBtn.disabled = !canGoForward;
+      });
+    }
+
+    // Back button
+    backBtn.addEventListener('click', () => {
+      webview.goBack();
+    });
+
+    // Forward button
+    forwardBtn.addEventListener('click', () => {
+      webview.goForward();
+    });
+
+    // Reload button
+    reloadBtn.addEventListener('click', () => {
+      webview.reload();
+    });
+
+    // Open Dev Server button
+    devServerBtn.addEventListener('click', () => {
+      webview.loadURL('https://your-dev-server-url');
+    });
+
+    // Open Heimdall button
+    heimdallBtn.addEventListener('click', () => {
+      webview.loadURL('http://100.75.133.26:8090/');
+    });
+
+    // Update buttons when navigation occurs
+    webview.addEventListener('did-navigate', updateNavButtons);
+    webview.addEventListener('did-navigate-in-page', updateNavButtons);
+    webview.addEventListener('dom-ready', updateNavButtons);
+  </script>
+</body>
+</html>

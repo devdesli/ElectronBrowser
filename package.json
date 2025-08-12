@@ -4,7 +4,7 @@
   "description": "an electron based browser made for homelabbers",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron --no-sandbox ."
   },
   "repository": {
     "type": "git",
@@ -20,5 +20,8 @@
   "devDependencies": {
     "electron": "^37.2.6",
     "electron-reload": "^2.0.0-alpha.1"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.1"
   }
 }
