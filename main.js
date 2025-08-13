@@ -93,18 +93,18 @@ app.whenReady().then(() => {
   createWindow();
 
   // Global shortcuts for all browser windows
-  const { globalShortcut } = require('electron');
-  app.on('browser-window-focus', (event, win) => {
-    globalShortcut.register('CommandOrControl+R', () => {
+  const { globalShortcut } = require("electron");
+  app.on("browser-window-focus", (event, win) => {
+    globalShortcut.register("CommandOrControl+R", () => {
       if (win) win.reload();
     });
-    globalShortcut.register('F12', () => {
+    globalShortcut.register("F12", () => {
       if (win) win.webContents.openDevTools();
     });
   });
-  app.on('browser-window-blur', () => {
-    globalShortcut.unregister('CommandOrControl+R');
-    globalShortcut.unregister('F12');
+  app.on("browser-window-blur", () => {
+    globalShortcut.unregister("CommandOrControl+R");
+    globalShortcut.unregister("F12");
   });
 
   app.on("activate", () => {

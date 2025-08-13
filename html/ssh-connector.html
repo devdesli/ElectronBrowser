@@ -106,6 +106,20 @@
     <script src="../node_modules/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
     <script src="../js/ssh-hosts.js"></script>
     <script>
+      // Electron shortcuts: Ctrl+R reloads, F12 opens DevTools
+      document.addEventListener("keydown", function (e) {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r") {
+          e.preventDefault();
+          location.reload();
+        }
+        if (e.key === "F12") {
+          e.preventDefault();
+          if (window.require) {
+            const { remote } = window.require("electron");
+            remote.getCurrentWindow().webContents.openDevTools();
+          }
+        }
+      });
       document.addEventListener("DOMContentLoaded", function () {
         // Host management UI
         let selectedHostId = null;
@@ -192,7 +206,16 @@
           let privateKey = host.privateKey || "";
           if (!privateKey && confirm("Use private key?"))
             privateKey = prompt("Paste private key:");
-          window.sshHostsApi.connectSSH(host, password, privateKey);
+          // Open terminal.html in a new window and pass host data via query string
+          const params = new URLSearchParams({
+            host: host.host,
+            port: host.port,
+            username: host.username,
+            password: password,
+            privateKey: privateKey,
+            name: host.name || "",
+          }).toString();
+          window.open(`terminal.html?${params}`, "_blank");
         };
         cancelBtn.onclick = () => {
           formModal.style.display = "none";
@@ -231,14 +254,19 @@
             document.getElementById("hostHost").focus();
             return;
           }
-          await window.sshHostsApi.addHost(host);
+          // Save to DB
+          const result = await window.sshHostsApi.addHost(host);
           formModal.style.display = "none";
           clearFormError();
           await loadHosts();
-          // Optionally connect immediately after add
+          // Optionally connect immediately, just like ConnectBot
           if (confirm("Connect to this host now?")) {
-            selectedHostId = hosts.length ? hosts[hosts.length - 1].id : null;
-            connectBtn.click();
+            window.sshHostsApi.connectSSH(host, host.password, host.privateKey);
+          }
+          // Select the newly added host for later use
+          if (result && result.id) {
+            selectedHostId = result.id;
+            renderHosts();
           }
         }
         async function saveEditHost() {
@@ -258,6 +286,7 @@
           };
         }
 
+        loadHosts();
         loadHosts();
       });
     </script>
