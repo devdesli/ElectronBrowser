@@ -93,6 +93,14 @@ const menuTemplate = [
             buttons: ['OK']
           });
         }
+      },
+      {
+        label: 'Reconfigure',
+        click: (menuItem, browserWindow) => {
+          if (browserWindow) {
+            browserWindow.loadFile('setup.html');
+          }
+        }
       }
     ]
   }

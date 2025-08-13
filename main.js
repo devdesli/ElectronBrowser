@@ -1,58 +1,85 @@
+
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
-console.log(os.platform());   // 'win32', 'linux', 'darwin'
-console.log(os.release());    // e.g. '6.1.7601'
-console.log(os.type());       // 'Windows_NT', 'Linux', etc.
-
-require('dotenv').config();
-
-require('./menu')
-
-// Reloads app when files in current directory change
-require('electron-reload')(path.join(__dirname), {
-  electron: require(`${__dirname}/node_modules/electron`)
-});
-
-const { dialog, app, BrowserWindow, Menu, ipcMain } = require('electron');
-const { setupIfNeeded } = require('./config');
+const { app, BrowserWindow, Menu, ipcMain } = require('electron');
 const menuTemplate = require('./menu');
+
+require('./menu');
+
 // disables ssl certificate checks
 app.commandLine.appendSwitch('ignore-certificate-errors');
 
-const configPath = path.join(app.getPath('userData'), 'config.json');
+const envPath = path.join(app.getPath('userData'), '.env');
+
+function loadEnvConfig() {
+  if (fs.existsSync(envPath)) {
+    require('dotenv').config({ path: envPath });
+    return {
+      DEV_URL: process.env.DEV_URL,
+      BASE_URL: process.env.BASE_URL,
+      OS: process.env.OS
+    };
+  }
+  return null;
+}
 
 ipcMain.on('save-config', (event, data) => {
-  fs.writeFileSync(configPath, JSON.stringify(data, null, 2));
-  console.log('Config saved to', configPath);
+  const envContent = `DEV_URL=${data.devUrl}\nBASE_URL=${data.baseUrl}\nOS=${data.os}\n`;
+  fs.writeFileSync(envPath, envContent);
+  require('dotenv').config({ path: envPath }); // reload env
   event.sender.send('config-saved');
+});
+
+function isValidUrl(url) {
+  try {
+    new URL(url);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+ipcMain.on('save-config', (event, config) => {
+    const envContent = `
+OS=${config.os}
+PLATFORM=${config.platform}
+DEV_SERVER=${config.devServer}
+BASE_URL=${config.baseUrl}
+    `.trim();
+
+    fs.writeFileSync(path.join(__dirname, '.env'), envContent, 'utf8');
+
+    console.log('.env file updated!');
 });
 
 function createWindow() {
   const win = new BrowserWindow({
-      width: 800,
-      height: 600,
-      webPreferences: {
-        javascript: true,
-        webSecurity: false,
-        nodeIntegration: false,
-        contextIsolation: true,
-        webviewTag: true,
+    width: 800,
+    height: 600,
+    webPreferences: {
+      javascript: true,
+      webSecurity: false,
+      nodeIntegration: true, // allow require in setup.html
+      contextIsolation: false,
+      webviewTag: true,
+    }
+  });
+
+  const config = loadEnvConfig();
+
+  if (!config || !config.BASE_URL || !isValidUrl(config.BASE_URL)) {
+    win.loadFile('setup.html');
+    ipcMain.once('config-saved', () => {
+      const newConfig = loadEnvConfig();
+      if (newConfig && newConfig.BASE_URL && isValidUrl(newConfig.BASE_URL)) {
+        win.loadURL(newConfig.BASE_URL);
       }
     });
-  
-    const config = setupIfNeeded(win);
-  
-    if (config) {
-      console.log('Config loaded:', config);
-      if (config.baseUrl) {
-        win.loadURL(config.baseUrl);
-      } else {
-        win.loadFile('setup.html');
-      }
-    }
+  } else {
+    win.loadURL(config.BASE_URL);
   }
-  
+}
+
 //sets the application menu changable
 const menu = Menu.buildFromTemplate(menuTemplate);
 Menu.setApplicationMenu(menu);

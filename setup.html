@@ -44,7 +44,8 @@
     <label for="os">Detected OS</label>
     <input type="text" id="os" name="os" readonly>
 
-    <button type="submit">Save & Continue</button>
+  <button type="submit">Save & Continue</button>
+  <button type="button" id="skipBtn">Skip</button>
   </form>
 
   <script>
@@ -60,12 +61,42 @@
       const data = {
         devUrl: document.getElementById('devUrl').value.trim(),
         baseUrl: document.getElementById('baseUrl').value.trim(),
-        os: document.getElementById('os').value
+        os: document.getElementById('os').value // detected OS
       };
 
       // Send data to main process to save
       ipcRenderer.send('save-config', data);
     });
+
+    document.getElementById('skipBtn').addEventListener('click', () => {
+      const data = {
+        devUrl: '',
+        baseUrl: 'https://www.google.com',
+        os: document.getElementById('os').value
+      };
+      ipcRenderer.send('save-config', data);
+    });
+
+    ipcRenderer.on('config-saved', () => {
+      // After saving config, load the BASE_URL page
+      window.location = document.getElementById('baseUrl').value.trim() || 'https://www.google.com';
+    });
   </script>
+  <script>
+    const { ipcRenderer } = require('electron');
+    
+    document.getElementById('setupForm').addEventListener('submit', (event) => {
+        event.preventDefault();
+    
+        const config = {
+            os: document.getElementById('os').value,
+            platform: document.getElementById('platform').value,
+            devServer: document.getElementById('devServer').value,
+            baseUrl: document.getElementById('baseUrl').value
+        };
+    
+        ipcRenderer.send('save-config', config);
+    });
+    </script>    
 </body>
 </html>

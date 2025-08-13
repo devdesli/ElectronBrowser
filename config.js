@@ -1,41 +1,35 @@
+
 // config.js
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { app } = require('electron');
 
-const configDir = path.join(os.homedir(), '.config', 'MyElectronBrowser');
-const configPath = path.join(configDir, 'config.json');
+const envPath = app ? path.join(app.getPath('userData'), '.env') : path.join(os.homedir(), '.config', 'MyElectronBrowser', '.env');
 
 function loadConfig() {
-  if (fs.existsSync(configPath)) {
-    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  if (fs.existsSync(envPath)) {
+    const env = fs.readFileSync(envPath, 'utf8');
+    const lines = env.split('\n');
+    const config = {};
+    lines.forEach(line => {
+      const [key, value] = line.split('=');
+      if (key && value !== undefined) config[key.trim()] = value.trim();
+    });
+    return config;
   }
   return null;
 }
 
 function saveConfig(data) {
-  if (!fs.existsSync(configDir)) {
-    fs.mkdirSync(configDir, { recursive: true });
-  }
-  fs.writeFileSync(configPath, JSON.stringify(data, null, 2));
+  const envContent = `DEV_URL=${data.DEV_URL || ''}\nBASE_URL=${data.BASE_URL || ''}\nOS=${data.OS || ''}\n`;
+  fs.writeFileSync(envPath, envContent);
 }
 
 function setupIfNeeded(mainWindow) {
   let config = loadConfig();
-  if (!config) {
-    // First run → run setup
-    config = {
-      os: os.type(),
-      platform: os.platform(),
-      devServer: '',  // will be filled by user
-      baseUrl: ''
-    };
-
-    // Here you could open a dialog or a special setup page
+  if (!config || !config.BASE_URL) {
     mainWindow.loadFile('setup.html');
-
-    // In your setup.html, collect user inputs and send them back to main process
-    // via ipcMain, then save them with saveConfig(config);
   }
   return config;
 }
