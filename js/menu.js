@@ -25,6 +25,20 @@ const menuTemplate = [
           win.loadFile(path.join(__dirname, "../html/ssh-connector.html"));
         },
       },
+      {
+        label: "SSH Debug",
+        click: () => {
+          const win = new BrowserWindow({
+            width: 800,
+            height: 600,
+            webPreferences: {
+              nodeIntegration: true,
+              contextIsolation: false,
+            },
+          });
+          win.loadFile(path.join(__dirname, "../html/debug.html"));
+        },
+      },
       { type: "separator" },
       { role: "quit" },
     ],

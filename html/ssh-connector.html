@@ -27,15 +27,49 @@
         padding: 8px;
         border-bottom: 1px solid #333;
         cursor: pointer;
+        border-radius: 4px;
+        margin-bottom: 2px;
+      }
+      .host-item:hover {
+        background: #333;
       }
       .host-item.selected {
         background: #444;
+        border-left: 3px solid #4a9;
       }
       .host-actions {
-        margin-top: 10px;
+        margin-top: 15px;
       }
       .host-actions button {
-        margin-right: 5px;
+        margin-right: 8px;
+        margin-bottom: 8px;
+        padding: 8px 12px;
+        background: #333;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .host-actions button:hover {
+        background: #444;
+      }
+      .host-actions button:disabled {
+        background: #555;
+        color: #999;
+        cursor: not-allowed;
+      }
+      .host-actions button.primary {
+        background: #4a9;
+      }
+      .host-actions button.primary:hover {
+        background: #5ba;
+      }
+      .host-actions button.danger {
+        background: #a44;
+      }
+      .host-actions button.danger:hover {
+        background: #b55;
       }
       #terminal {
         width: 100%;
@@ -58,55 +92,422 @@
         background: #222;
         padding: 24px 32px;
         border-radius: 8px;
-        box-shadow: 0 2px 16px #000a;
+        box-shadow: 0 2px 16px rgba(0,0,0,0.6);
         min-width: 320px;
         max-width: 90vw;
+      }
+      #host-form h3 {
+        margin-top: 0;
+        color: #fff;
       }
       #host-form input,
       #host-form textarea {
         width: 100%;
-        margin-bottom: 8px;
+        margin-bottom: 12px;
+        padding: 8px;
+        border: 1px solid #555;
+        border-radius: 4px;
+        background: #333;
+        color: white;
+        font-family: inherit;
+      }
+      #host-form input:focus,
+      #host-form textarea:focus {
+        outline: none;
+        border-color: #4a9;
+      }
+      #host-form textarea {
+        min-height: 80px;
+        resize: vertical;
+        font-family: monospace;
+      }
+      #host-form button {
+        margin-right: 8px;
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      #saveHostBtn {
+        background: #4a9;
+        color: white;
+      }
+      #saveHostBtn:hover {
+        background: #5ba;
+      }
+      #cancelHostBtn {
+        background: #666;
+        color: white;
+      }
+      #cancelHostBtn:hover {
+        background: #777;
+      }
+      #status {
+        background: #333;
+        padding: 10px;
+        border-radius: 4px;
+        margin-bottom: 15px;
+        font-size: 12px;
+      }
+      .error {
+        color: #ff5555;
+      }
+      .success {
+        color: #55ff55;
+      }
+      .info {
+        color: #5555ff;
       }
     </style>
   </head>
   <body>
     <div id="sidebar">
       <h2>SSH Hosts</h2>
+      <div id="status">Ready to connect</div>
       <div id="host-list"></div>
       <div class="host-actions">
         <button id="addHostBtn">Add Host</button>
         <button id="editHostBtn" disabled>Edit</button>
-        <button id="deleteHostBtn" disabled>Delete</button>
-        <button id="connectHostBtn" disabled>Connect</button>
+        <button id="deleteHostBtn" class="danger" disabled>Delete</button>
+        <button id="connectHostBtn" class="primary" disabled>Connect</button>
       </div>
     </div>
+    
     <div id="main">
+      <h2>SSH Terminal Connector</h2>
+      <p>Select a host from the sidebar to connect, or add a new host.</p>
+      
       <div id="host-form-modal">
         <div id="host-form">
           <h3 id="formTitle">Add Host</h3>
-          <input type="text" id="hostName" placeholder="Name" />
-          <input type="text" id="hostHost" placeholder="Host (IP or DNS)" />
+          <input type="text" id="hostName" placeholder="Display Name (optional)" />
+          <input type="text" id="hostHost" placeholder="Host (IP or DNS) *" required />
           <input type="number" id="hostPort" placeholder="Port" value="22" />
-          <input type="text" id="hostUser" placeholder="Username" />
+          <input type="text" id="hostUser" placeholder="Username *" required />
           <input
             type="password"
             id="hostPassword"
-            placeholder="Password (optional)"
+            placeholder="Password (optional - leave empty for key auth)"
           />
           <textarea
             id="hostKey"
-            placeholder="Private Key (optional)"
+            placeholder="Private Key (optional - paste full key including headers)"
           ></textarea>
-          <button id="saveHostBtn">Save</button>
+          <button id="saveHostBtn">Save Host</button>
           <button id="cancelHostBtn">Cancel</button>
         </div>
       </div>
     </div>
-    <script src="../node_modules/xterm/lib/xterm.js"></script>
-    <script src="../node_modules/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
-    <script src="../js/ssh-hosts.js"></script>
+    
     <script>
-      // Electron shortcuts: Ctrl+R reloads, F12 opens DevTools
+      // Check backend status first
+      async function checkBackendStatus() {
+        try {
+          const response = await fetch('http://localhost:3002/health');
+          if (response.ok) {
+            updateStatus('Backend connected successfully', 'success');
+            return true;
+          }
+        } catch (error) {
+          updateStatus('Backend not responding - please wait...', 'error');
+          return false;
+        }
+      }
+
+      function updateStatus(message, type = 'info') {
+        const status = document.getElementById('status');
+        status.textContent = message;
+        status.className = type;
+      }
+
+      // Wait for backend to be ready
+      async function waitForBackend() {
+        let attempts = 0;
+        const maxAttempts = 15; // 15 seconds
+        
+        while (attempts < maxAttempts) {
+          if (await checkBackendStatus()) {
+            return true;
+          }
+          attempts++;
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
+        updateStatus('Backend failed to start - please restart the application', 'error');
+        return false;
+      }
+
+      // Host management variables
+      let selectedHostId = null;
+      let hosts = [];
+      
+      const hostListElem = document.getElementById("host-list");
+      const addBtn = document.getElementById("addHostBtn");
+      const editBtn = document.getElementById("editHostBtn");
+      const deleteBtn = document.getElementById("deleteHostBtn");
+      const connectBtn = document.getElementById("connectHostBtn");
+      const formModal = document.getElementById("host-form-modal");
+      const formElem = document.getElementById("host-form");
+      const formTitle = document.getElementById("formTitle");
+      const saveBtn = document.getElementById("saveHostBtn");
+      const cancelBtn = document.getElementById("cancelHostBtn");
+
+      // API functions
+      const apiBase = "http://localhost:3002";
+      
+      async function fetchHosts() {
+        try {
+          const res = await fetch(apiBase + "/hosts");
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json();
+        } catch (error) {
+          console.error('Failed to fetch hosts:', error);
+          updateStatus('Failed to load hosts', 'error');
+          return [];
+        }
+      }
+
+      async function addHost(host) {
+        try {
+          const res = await fetch(apiBase + "/hosts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(host),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json();
+        } catch (error) {
+          console.error('Failed to add host:', error);
+          throw error;
+        }
+      }
+
+      async function updateHost(id, host) {
+        try {
+          const res = await fetch(apiBase + "/hosts/" + id, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(host),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json();
+        } catch (error) {
+          console.error('Failed to update host:', error);
+          throw error;
+        }
+      }
+
+      async function deleteHost(id) {
+        try {
+          const res = await fetch(apiBase + "/hosts/" + id, { method: "DELETE" });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json();
+        } catch (error) {
+          console.error('Failed to delete host:', error);
+          throw error;
+        }
+      }
+
+      // UI functions
+      function renderHosts() {
+        hostListElem.innerHTML = "";
+        hosts.forEach((host) => {
+          const div = document.createElement("div");
+          div.className = "host-item" + (host.id === selectedHostId ? " selected" : "");
+          div.innerHTML = `
+            <strong>${host.name || `${host.username}@${host.host}`}</strong><br>
+            <small>${host.host}:${host.port}</small>
+          `;
+          div.onclick = () => selectHost(host.id);
+          hostListElem.appendChild(div);
+        });
+        updateActions();
+      }
+
+      function selectHost(id) {
+        selectedHostId = id;
+        renderHosts();
+      }
+
+      function updateActions() {
+        const hasSelection = selectedHostId !== null;
+        editBtn.disabled = !hasSelection;
+        deleteBtn.disabled = !hasSelection;
+        connectBtn.disabled = !hasSelection;
+      }
+
+      async function loadHosts() {
+        hosts = await fetchHosts();
+        selectedHostId = hosts.length ? hosts[0].id : null;
+        renderHosts();
+        updateStatus(`Loaded ${hosts.length} hosts`, 'success');
+      }
+
+      // Event handlers
+      addBtn.onclick = () => {
+        formModal.style.display = "flex";
+        formTitle.textContent = "Add Host";
+        fillForm();
+        saveBtn.onclick = saveNewHost;
+        document.getElementById("hostHost").focus();
+      };
+
+      editBtn.onclick = () => {
+        if (!selectedHostId) return;
+        formModal.style.display = "flex";
+        formTitle.textContent = "Edit Host";
+        saveBtn.onclick = saveEditHost;
+        fillForm(hosts.find((h) => h.id === selectedHostId));
+      };
+
+      deleteBtn.onclick = async () => {
+        if (!selectedHostId) return;
+        const host = hosts.find(h => h.id === selectedHostId);
+        if (confirm(`Delete host "${host.name || host.host}"?`)) {
+          try {
+            await deleteHost(selectedHostId);
+            await loadHosts();
+            updateStatus('Host deleted', 'success');
+          } catch (error) {
+            updateStatus('Failed to delete host', 'error');
+          }
+        }
+      };
+
+      connectBtn.onclick = () => {
+        if (!selectedHostId) return;
+        const host = hosts.find((h) => h.id === selectedHostId);
+        
+        // Get password if not saved
+        let password = host.password || "";
+        if (!password && !host.privateKey) {
+          password = prompt(`Enter password for ${host.username}@${host.host}:`);
+          if (password === null) return; // User cancelled
+        }
+
+        // Open terminal window
+        const params = new URLSearchParams({
+          host: host.host,
+          port: host.port,
+          username: host.username,
+          password: password,
+          privateKey: host.privateKey || '',
+          name: host.name || `${host.username}@${host.host}`,
+        }).toString();
+        
+        updateStatus(`Connecting to ${host.host}...`, 'info');
+        
+        // Open in new window
+        const terminalWindow = window.open(
+          `terminal.html?${params}`, 
+          `ssh_${host.id}`,
+          'width=1000,height=600,resizable=yes,scrollbars=yes'
+        );
+        
+        if (!terminalWindow) {
+          updateStatus('Failed to open terminal window (popup blocked?)', 'error');
+        }
+      };
+
+      cancelBtn.onclick = () => {
+        formModal.style.display = "none";
+        clearFormError();
+      };
+
+      // Form functions
+      function fillForm(host = {}) {
+        document.getElementById("hostName").value = host.name || "";
+        document.getElementById("hostHost").value = host.host || "";
+        document.getElementById("hostPort").value = host.port || 22;
+        document.getElementById("hostUser").value = host.username || "";
+        document.getElementById("hostPassword").value = host.password || "";
+        document.getElementById("hostKey").value = host.privateKey || "";
+        clearFormError();
+      }
+
+      function showFormError(msg) {
+        let err = document.getElementById("formError");
+        if (!err) {
+          err = document.createElement("div");
+          err.id = "formError";
+          err.style.color = "#ff5555";
+          err.style.marginBottom = "8px";
+          err.style.padding = "8px";
+          err.style.background = "#441111";
+          err.style.borderRadius = "4px";
+          formElem.insertBefore(err, formElem.firstChild);
+        }
+        err.textContent = msg;
+      }
+
+      function clearFormError() {
+        const err = document.getElementById("formError");
+        if (err) err.remove();
+      }
+
+      async function saveNewHost() {
+        const host = getFormData();
+        if (!validateForm(host)) return;
+        
+        try {
+          const result = await addHost(host);
+          formModal.style.display = "none";
+          clearFormError();
+          await loadHosts();
+          
+          // Select the newly added host
+          if (result && result.id) {
+            selectedHostId = result.id;
+            renderHosts();
+          }
+          
+          updateStatus('Host added successfully', 'success');
+        } catch (error) {
+          showFormError('Failed to save host: ' + error.message);
+        }
+      }
+
+      async function saveEditHost() {
+        const host = getFormData();
+        if (!validateForm(host)) return;
+        
+        try {
+          await updateHost(selectedHostId, host);
+          formModal.style.display = "none";
+          clearFormError();
+          await loadHosts();
+          updateStatus('Host updated successfully', 'success');
+        } catch (error) {
+          showFormError('Failed to update host: ' + error.message);
+        }
+      }
+
+      function getFormData() {
+        return {
+          name: document.getElementById("hostName").value.trim(),
+          host: document.getElementById("hostHost").value.trim(),
+          port: parseInt(document.getElementById("hostPort").value, 10) || 22,
+          username: document.getElementById("hostUser").value.trim(),
+          password: document.getElementById("hostPassword").value,
+          privateKey: document.getElementById("hostKey").value.trim(),
+        };
+      }
+
+      function validateForm(host) {
+        if (!host.host) {
+          showFormError("Host/IP is required");
+          document.getElementById("hostHost").focus();
+          return false;
+        }
+        if (!host.username) {
+          showFormError("Username is required");
+          document.getElementById("hostUser").focus();
+          return false;
+        }
+        return true;
+      }
+
+      // Keyboard shortcuts
       document.addEventListener("keydown", function (e) {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r") {
           e.preventDefault();
@@ -115,179 +516,31 @@
         if (e.key === "F12") {
           e.preventDefault();
           if (window.require) {
-            const { remote } = window.require("electron");
-            remote.getCurrentWindow().webContents.openDevTools();
+            try {
+              const { remote } = window.require("electron");
+              remote.getCurrentWindow().webContents.openDevTools();
+            } catch (err) {
+              console.log('DevTools not available');
+            }
           }
         }
       });
-      document.addEventListener("DOMContentLoaded", function () {
-        // Host management UI
-        let selectedHostId = null;
-        let hosts = [];
-        const hostListElem = document.getElementById("host-list");
-        const addBtn = document.getElementById("addHostBtn");
-        const editBtn = document.getElementById("editHostBtn");
-        const deleteBtn = document.getElementById("deleteHostBtn");
-        const connectBtn = document.getElementById("connectHostBtn");
-        const formModal = document.getElementById("host-form-modal");
-        const formElem = document.getElementById("host-form");
-        const formTitle = document.getElementById("formTitle");
-        const saveBtn = document.getElementById("saveHostBtn");
-        const cancelBtn = document.getElementById("cancelHostBtn");
 
-        function renderHosts() {
-          hostListElem.innerHTML = "";
-          hosts.forEach((host) => {
-            const div = document.createElement("div");
-            div.className =
-              "host-item" + (host.id === selectedHostId ? " selected" : "");
-            div.textContent = `${host.name} (${host.host}:${host.port})`;
-            div.onclick = () => selectHost(host.id);
-            hostListElem.appendChild(div);
-          });
-          updateActions();
-        }
-
-        function selectHost(id) {
-          selectedHostId = id;
-          renderHosts();
-        }
-
-        function updateActions() {
-          const hasSelection = selectedHostId !== null;
-          editBtn.disabled = !hasSelection;
-          deleteBtn.disabled = !hasSelection;
-          connectBtn.disabled = !hasSelection;
-        }
-
-        async function loadHosts() {
-          hosts = await window.sshHostsApi.fetchHosts();
-          selectedHostId = hosts.length ? hosts[0].id : null;
-          renderHosts();
-        }
-
-        addBtn.onclick = () => {
-          console.log("Add Host button clicked");
-          formModal.style.display = "flex";
-          formTitle.textContent = "Add Host";
-          fillForm();
-          saveBtn.onclick = saveNewHost;
-          document.getElementById("hostHost").focus();
-          // Allow Enter to save
-          formElem.onkeydown = (e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              saveNewHost();
-            }
-          };
-        };
-        editBtn.onclick = () => {
-          if (!selectedHostId) return;
-          formModal.style.display = "flex";
-          formTitle.textContent = "Edit Host";
-          saveBtn.onclick = saveEditHost;
-          fillForm(hosts.find((h) => h.id === selectedHostId));
-        };
-        deleteBtn.onclick = async () => {
-          if (!selectedHostId) return;
-          await window.sshHostsApi.deleteHost(selectedHostId);
-          await loadHosts();
-        };
-        connectBtn.onclick = () => {
-          if (!selectedHostId) return;
-          const host = hosts.find((h) => h.id === selectedHostId);
-          // Prompt for password if not saved
-          let password = host.password || "";
-          if (!password)
-            password = prompt(
-              "Enter password for " + host.username + "@" + host.host + ":"
-            );
-          // Prompt for private key if not saved
-          let privateKey = host.privateKey || "";
-          if (!privateKey && confirm("Use private key?"))
-            privateKey = prompt("Paste private key:");
-          // Open terminal.html in a new window and pass host data via query string
-          const params = new URLSearchParams({
-            host: host.host,
-            port: host.port,
-            username: host.username,
-            password: password,
-            privateKey: privateKey,
-            name: host.name || "",
-          }).toString();
-          window.open(`terminal.html?${params}`, "_blank");
-        };
-        cancelBtn.onclick = () => {
-          formModal.style.display = "none";
-        };
-
-        function fillForm(host = {}) {
-          document.getElementById("hostName").value = host.name || "";
-          document.getElementById("hostHost").value = host.host || "";
-          document.getElementById("hostPort").value = host.port || 22;
-          document.getElementById("hostUser").value = host.username || "";
-          document.getElementById("hostPassword").value = host.password || "";
-          document.getElementById("hostKey").value = host.privateKey || "";
+      // Close modal on Escape
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && formModal.style.display === 'flex') {
+          formModal.style.display = 'none';
           clearFormError();
         }
+      });
 
-        function showFormError(msg) {
-          let err = document.getElementById("formError");
-          if (!err) {
-            err = document.createElement("div");
-            err.id = "formError";
-            err.style.color = "#ff5555";
-            err.style.marginBottom = "8px";
-            formElem.insertBefore(err, formElem.firstChild);
-          }
-          err.textContent = msg;
-        }
-        function clearFormError() {
-          const err = document.getElementById("formError");
-          if (err) err.textContent = "";
-        }
-
-        async function saveNewHost() {
-          const host = getFormData();
-          if (!host.host) {
-            showFormError("Host/IP is required");
-            document.getElementById("hostHost").focus();
-            return;
-          }
-          // Save to DB
-          const result = await window.sshHostsApi.addHost(host);
-          formModal.style.display = "none";
-          clearFormError();
-          await loadHosts();
-          // Optionally connect immediately, just like ConnectBot
-          if (confirm("Connect to this host now?")) {
-            window.sshHostsApi.connectSSH(host, host.password, host.privateKey);
-          }
-          // Select the newly added host for later use
-          if (result && result.id) {
-            selectedHostId = result.id;
-            renderHosts();
-          }
-        }
-        async function saveEditHost() {
-          const host = getFormData();
-          await window.sshHostsApi.updateHost(selectedHostId, host);
-          formElem.style.display = "none";
+      // Initialize app
+      document.addEventListener("DOMContentLoaded", async function () {
+        updateStatus('Connecting to backend...', 'info');
+        
+        if (await waitForBackend()) {
           await loadHosts();
         }
-        function getFormData() {
-          return {
-            name: document.getElementById("hostName").value,
-            host: document.getElementById("hostHost").value,
-            port: parseInt(document.getElementById("hostPort").value, 10),
-            username: document.getElementById("hostUser").value || "",
-            password: document.getElementById("hostPassword").value || "",
-            privateKey: document.getElementById("hostKey").value || "",
-          };
-        }
-
-        loadHosts();
-        loadHosts();
       });
     </script>
   </body>

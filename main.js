@@ -91,7 +91,6 @@ Menu.setApplicationMenu(menu);
 // creates the browser window
 app.whenReady().then(() => {
   createWindow();
-
   // Global shortcuts for all browser windows
   const { globalShortcut } = require("electron");
   app.on("browser-window-focus", (event, win) => {
@@ -107,6 +106,13 @@ app.whenReady().then(() => {
     globalShortcut.unregister("F12");
   });
 
+  // Kill backend when app quits
+  app.on("before-quit", () => {
+    if (backendProcess && !backendProcess.killed) {
+      backendProcess.kill();
+    }
+  });
+
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -114,5 +120,6 @@ app.whenReady().then(() => {
 
 // quits the app when everything is closed
 app.on("window-all-closed", () => {
+
   if (process.platform !== "darwin") app.quit();
 });

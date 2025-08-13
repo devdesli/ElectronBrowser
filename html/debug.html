@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>SSH Connection Debug</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #181818;
+            color: white;
+            margin: 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #555;
+            border-radius: 5px;
+            background: #222;
+        }
+        
+        button {
+            background: #4a9;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        
+        button:hover {
+            background: #5ba;
+        }
+        
+        button.danger {
+            background: #a44;
+        }
+        
+        button.danger:hover {
+            background: #b55;
+        }
+        
+        input {
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            padding: 8px;
+            margin: 5px;
+            border-radius: 3px;
+        }
+        
+        #log {
+            background: #111;
+            border: 1px solid #444;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-size: 12px;
+        }
+        
+        .success { color: #5f5; }
+        .error { color: #f55; }
+        .info { color: #55f; }
+        .warn { color: #fa0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>SSH Connection Debug Tool</h1>
+        
+        <div class="section">
+            <h3>1. Test Backend Connectivity</h3>
+            <button onclick="testAPI()">Test API (Port 3002)</button>
+            <button onclick="testWebSocket()">Test WebSocket (Port 3001)</button>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+        
+        <div class="section">
+            <h3>2. Test SSH Connection</h3>
+            <div>
+                <input type="text" id="host" placeholder="Host (e.g., 192.168.1.100)" style="width: 200px;">
+                <input type="text" id="username" placeholder="Username" style="width: 120px;">
+                <input type="password" id="password" placeholder="Password" style="width: 120px;">
+                <input type="number" id="port" placeholder="Port" value="22" style="width: 80px;">
+            </div>
+            <button onclick="testSSHConnection()">Test SSH Connection</button>
+            <button onclick="disconnect()" class="danger">Disconnect</button>
+        </div>
+        
+        <div class="section">
+            <h3>3. Debug Log</h3>
+            <div id="log"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let connectionActive = false;
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const line = `[${timestamp}] ${message}\n`;
+            
+            const span = document.createElement('span');
+            span.className = type;
+            span.textContent = line;
+            logDiv.appendChild(span);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        async function testAPI() {
+            log('Testing API connection...', 'info');
+            try {
+                const response = await fetch('http://localhost:3002/health');
+                if (response.ok) {
+                    const data = await response.json();
+                    log('✓ API connection successful: ' + JSON.stringify(data), 'success');
+                } else {
+                    log('✗ API connection failed: HTTP ' + response.status, 'error');
+                }
+            } catch (error) {
+                log('✗ API connection error: ' + error.message, 'error');
+            }
+        }
+
+        function testWebSocket() {
+            log('Testing WebSocket connection...', 'info');
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                log('✗ WebSocket already connected. Disconnect first.', 'warn');
+                return;
+            }
+            
+            try {
+                ws = new WebSocket('ws://localhost:3001');
+                
+                ws.onopen = () => {
+                    log('✓ WebSocket connected successfully', 'success');
+                };
+                
+                ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        log('← Received: ' + JSON.stringify(data), 'info');
+                    } catch (e) {
+                        log('← Raw data: ' + event.data, 'info');
+                    }
+                };
+                
+                ws.onerror = (error) => {
+                    log('✗ WebSocket error: ' + error, 'error');
+                };
+                
+                ws.onclose = (event) => {
+                    log('WebSocket closed (code: ' + event.code + ')', 'warn');
+                    connectionActive = false;
+                };
+                
+                setTimeout(() => {
+                    if (ws.readyState === WebSocket.CONNECTING) {
+                        log('✗ WebSocket connection timeout', 'error');
+                        ws.close();
+                    }
+                }, 5000);
+                
+            } catch (error) {
+                log('✗ WebSocket creation error: ' + error.message, 'error');
+            }
+        }
+
+        function testSSHConnection() {
+            const host = document.getElementById('host').value;
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const port = document.getElementById('port').value || 22;
+            
+            if (!host || !username) {
+                log('✗ Please enter host and username', 'error');
+                return;
+            }
+            
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('✗ WebSocket not connected. Test WebSocket first.', 'error');
+                return;
+            }
+            
+            log(`Testing SSH connection to ${username}@${host}:${port}`, 'info');
+            
+            const connectMessage = {
+                action: 'connect',
+                host: host,
+                port: parseInt(port),
+                username: username,
+                password: password
+            };
+            
+            log('→ Sending: ' + JSON.stringify({...connectMessage, password: '***'}), 'info');
+            ws.send(JSON.stringify(connectMessage));
+            connectionActive = true;
+        }
+
+        function disconnect() {
+            if (ws) {
+                log('Disconnecting...', 'info');
+                ws.close();
+                ws = null;
+                connectionActive = false;
+            }
+        }
+
+        // Auto-test on page load
+        window.addEventListener('load', () => {
+            log('Debug tool loaded. Testing backend...', 'info');
+            setTimeout(testAPI, 500);
+            setTimeout(testWebSocket, 1000);
+        });
+    </script>
+</body>
+</html>

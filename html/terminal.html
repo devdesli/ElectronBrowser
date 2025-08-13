@@ -1,27 +1,120 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="UTF-8" />
-    <title>SSH Terminal</title>
-    <link rel="stylesheet" href="../node_modules/xterm/css/xterm.css" />
-    <style>
-      body {
-        background: #181818;
-        color: #eee;
-        margin: 0;
-        font-family: sans-serif;
-      }
-      #terminal {
-        width: 100vw;
-        height: 100vh;
-        background: black;
-      }
-    </style>
-  </head>
-  <body>
+<head>
+  <meta charset="UTF-8" />
+  <title>SSH Terminal</title>
+  <link rel="stylesheet" href="../node_modules/xterm/css/xterm.css" />
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      height: 100vh;
+      background: #181818;
+      color: #eee;
+      font-family: sans-serif;
+      overflow: hidden;
+    }
+    
+    #header {
+      background: #222;
+      padding: 8px 15px;
+      border-bottom: 1px solid #333;
+      font-size: 12px;
+      color: #ccc;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      min-height: 20px;
+    }
+    
+    #connection-info {
+      font-weight: bold;
+    }
+    
+    #connection-status {
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 11px;
+      background: #555;
+    }
+    
+    #connection-status.connected {
+      background: #4a9;
+      color: white;
+    }
+    
+    #connection-status.connecting {
+      background: #fa0;
+      color: black;
+    }
+    
+    #connection-status.disconnected {
+      background: #a44;
+      color: white;
+    }
+    
+    #terminal-container {
+      height: calc(100vh - 37px);
+      width: 100vw;
+      background: #181818;
+    }
+    
+    #terminal {
+      height: 100%;
+      width: 100%;
+      padding: 10px;
+      box-sizing: border-box;
+    }
+    
+    .terminal {
+      font-family: 'Courier New', Monaco, monospace !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <div id="connection-info">SSH Terminal</div>
+    <div id="connection-status" class="connecting">Connecting...</div>
+  </div>
+  
+  <div id="terminal-container">
     <div id="terminal"></div>
-    <script src="../node_modules/xterm/lib/xterm.js"></script>
-    <script src="../node_modules/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
-    <script src="../js/terminal.js"></script>
-  </body>
+  </div>
+
+  <script src="../node_modules/xterm/lib/xterm.js"></script>
+  <script src="../node_modules/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+  <script>
+    // Update connection info in header
+    const urlParams = new URLSearchParams(window.location.search);
+    const host = urlParams.get('host');
+    const username = urlParams.get('username');
+    const port = urlParams.get('port') || '22';
+    const name = urlParams.get('name') || 'SSH Terminal';
+    
+    if (host && username) {
+      document.getElementById('connection-info').textContent = `${name} - ${username}@${host}:${port}`;
+    }
+    
+    // Status update function
+    window.updateConnectionStatus = (status) => {
+      const statusElement = document.getElementById('connection-status');
+      statusElement.className = status;
+      
+      switch(status) {
+        case 'connected':
+          statusElement.textContent = 'Connected';
+          break;
+        case 'connecting':
+          statusElement.textContent = 'Connecting...';
+          break;
+        case 'disconnected':
+          statusElement.textContent = 'Disconnected';
+          break;
+        default:
+          statusElement.textContent = status;
+      }
+    };
+  </script>
+  <script src="../js/terminal.js"></script>
+</body>
 </html>
