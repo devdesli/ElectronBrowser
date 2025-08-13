@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>SSH Connector</title>
+    <link rel="stylesheet" href="../node_modules/xterm/css/xterm.css" />
+    <style>
+      body {
+        font-family: sans-serif;
+        background: #181818;
+        color: #eee;
+        margin: 0;
+      }
+      #sidebar {
+        width: 300px;
+        background: #222;
+        height: 100vh;
+        float: left;
+        padding: 20px;
+        box-sizing: border-box;
+      }
+      #main {
+        margin-left: 300px;
+        padding: 20px;
+      }
+      .host-item {
+        padding: 8px;
+        border-bottom: 1px solid #333;
+        cursor: pointer;
+      }
+      .host-item.selected {
+        background: #444;
+      }
+      .host-actions {
+        margin-top: 10px;
+      }
+      .host-actions button {
+        margin-right: 5px;
+      }
+      #terminal {
+        width: 100%;
+        height: 400px;
+        background: black;
+      }
+      #host-form-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.7);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+      }
+      #host-form {
+        background: #222;
+        padding: 24px 32px;
+        border-radius: 8px;
+        box-shadow: 0 2px 16px #000a;
+        min-width: 320px;
+        max-width: 90vw;
+      }
+      #host-form input,
+      #host-form textarea {
+        width: 100%;
+        margin-bottom: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="sidebar">
+      <h2>SSH Hosts</h2>
+      <div id="host-list"></div>
+      <div class="host-actions">
+        <button id="addHostBtn">Add Host</button>
+        <button id="editHostBtn" disabled>Edit</button>
+        <button id="deleteHostBtn" disabled>Delete</button>
+        <button id="connectHostBtn" disabled>Connect</button>
+      </div>
+    </div>
+    <div id="main">
+      <div id="host-form-modal">
+        <div id="host-form">
+          <h3 id="formTitle">Add Host</h3>
+          <input type="text" id="hostName" placeholder="Name" />
+          <input type="text" id="hostHost" placeholder="Host (IP or DNS)" />
+          <input type="number" id="hostPort" placeholder="Port" value="22" />
+          <input type="text" id="hostUser" placeholder="Username" />
+          <input
+            type="password"
+            id="hostPassword"
+            placeholder="Password (optional)"
+          />
+          <textarea
+            id="hostKey"
+            placeholder="Private Key (optional)"
+          ></textarea>
+          <button id="saveHostBtn">Save</button>
+          <button id="cancelHostBtn">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <script src="../node_modules/xterm/lib/xterm.js"></script>
+    <script src="../node_modules/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+    <script src="../js/ssh-hosts.js"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        // Host management UI
+        let selectedHostId = null;
+        let hosts = [];
+        const hostListElem = document.getElementById("host-list");
+        const addBtn = document.getElementById("addHostBtn");
+        const editBtn = document.getElementById("editHostBtn");
+        const deleteBtn = document.getElementById("deleteHostBtn");
+        const connectBtn = document.getElementById("connectHostBtn");
+        const formModal = document.getElementById("host-form-modal");
+        const formElem = document.getElementById("host-form");
+        const formTitle = document.getElementById("formTitle");
+        const saveBtn = document.getElementById("saveHostBtn");
+        const cancelBtn = document.getElementById("cancelHostBtn");
+
+        function renderHosts() {
+          hostListElem.innerHTML = "";
+          hosts.forEach((host) => {
+            const div = document.createElement("div");
+            div.className =
+              "host-item" + (host.id === selectedHostId ? " selected" : "");
+            div.textContent = `${host.name} (${host.host}:${host.port})`;
+            div.onclick = () => selectHost(host.id);
+            hostListElem.appendChild(div);
+          });
+          updateActions();
+        }
+
+        function selectHost(id) {
+          selectedHostId = id;
+          renderHosts();
+        }
+
+        function updateActions() {
+          const hasSelection = selectedHostId !== null;
+          editBtn.disabled = !hasSelection;
+          deleteBtn.disabled = !hasSelection;
+          connectBtn.disabled = !hasSelection;
+        }
+
+        async function loadHosts() {
+          hosts = await window.sshHostsApi.fetchHosts();
+          selectedHostId = hosts.length ? hosts[0].id : null;
+          renderHosts();
+        }
+
+        addBtn.onclick = () => {
+          console.log("Add Host button clicked");
+          formModal.style.display = "flex";
+          formTitle.textContent = "Add Host";
+          fillForm();
+          saveBtn.onclick = saveNewHost;
+          document.getElementById("hostHost").focus();
+          // Allow Enter to save
+          formElem.onkeydown = (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              saveNewHost();
+            }
+          };
+        };
+        editBtn.onclick = () => {
+          if (!selectedHostId) return;
+          formModal.style.display = "flex";
+          formTitle.textContent = "Edit Host";
+          saveBtn.onclick = saveEditHost;
+          fillForm(hosts.find((h) => h.id === selectedHostId));
+        };
+        deleteBtn.onclick = async () => {
+          if (!selectedHostId) return;
+          await window.sshHostsApi.deleteHost(selectedHostId);
+          await loadHosts();
+        };
+        connectBtn.onclick = () => {
+          if (!selectedHostId) return;
+          const host = hosts.find((h) => h.id === selectedHostId);
+          // Prompt for password if not saved
+          let password = host.password || "";
+          if (!password)
+            password = prompt(
+              "Enter password for " + host.username + "@" + host.host + ":"
+            );
+          // Prompt for private key if not saved
+          let privateKey = host.privateKey || "";
+          if (!privateKey && confirm("Use private key?"))
+            privateKey = prompt("Paste private key:");
+          window.sshHostsApi.connectSSH(host, password, privateKey);
+        };
+        cancelBtn.onclick = () => {
+          formModal.style.display = "none";
+        };
+
+        function fillForm(host = {}) {
+          document.getElementById("hostName").value = host.name || "";
+          document.getElementById("hostHost").value = host.host || "";
+          document.getElementById("hostPort").value = host.port || 22;
+          document.getElementById("hostUser").value = host.username || "";
+          document.getElementById("hostPassword").value = host.password || "";
+          document.getElementById("hostKey").value = host.privateKey || "";
+          clearFormError();
+        }
+
+        function showFormError(msg) {
+          let err = document.getElementById("formError");
+          if (!err) {
+            err = document.createElement("div");
+            err.id = "formError";
+            err.style.color = "#ff5555";
+            err.style.marginBottom = "8px";
+            formElem.insertBefore(err, formElem.firstChild);
+          }
+          err.textContent = msg;
+        }
+        function clearFormError() {
+          const err = document.getElementById("formError");
+          if (err) err.textContent = "";
+        }
+
+        async function saveNewHost() {
+          const host = getFormData();
+          if (!host.host) {
+            showFormError("Host/IP is required");
+            document.getElementById("hostHost").focus();
+            return;
+          }
+          await window.sshHostsApi.addHost(host);
+          formModal.style.display = "none";
+          clearFormError();
+          await loadHosts();
+          // Optionally connect immediately after add
+          if (confirm("Connect to this host now?")) {
+            selectedHostId = hosts.length ? hosts[hosts.length - 1].id : null;
+            connectBtn.click();
+          }
+        }
+        async function saveEditHost() {
+          const host = getFormData();
+          await window.sshHostsApi.updateHost(selectedHostId, host);
+          formElem.style.display = "none";
+          await loadHosts();
+        }
+        function getFormData() {
+          return {
+            name: document.getElementById("hostName").value,
+            host: document.getElementById("hostHost").value,
+            port: parseInt(document.getElementById("hostPort").value, 10),
+            username: document.getElementById("hostUser").value || "",
+            password: document.getElementById("hostPassword").value || "",
+            privateKey: document.getElementById("hostKey").value || "",
+          };
+        }
+
+        loadHosts();
+      });
+    </script>
+  </body>
+</html>

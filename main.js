@@ -1,33 +1,37 @@
+const path = require("path");
+const fs = require("fs");
+const { spawn } = require("child_process");
+const menuTemplate = require("./js/menu");
 
-const path = require('path');
-const fs = require('fs');
-const { app, BrowserWindow, Menu, ipcMain } = require('electron');
-const menuTemplate = require('./menu');
-
-require('./menu');
+const { app, BrowserWindow, Menu, ipcMain } = require("electron");
 
 // disables ssl certificate checks
-app.commandLine.appendSwitch('ignore-certificate-errors');
+app.commandLine.appendSwitch("ignore-certificate-errors");
+app.commandLine.appendSwitch("disable-gpu-vsync");
+app.commandLine.appendSwitch("disable-gpu");
+app.commandLine.appendSwitch("disable-software-rasterizer");
 
-const envPath = path.join(app.getPath('userData'), '.env');
+// ...backend now starts only when SSH Connector is opened...
+
+const envPath = path.join(app.getPath("userData"), ".env");
 
 function loadEnvConfig() {
   if (fs.existsSync(envPath)) {
-    require('dotenv').config({ path: envPath });
+    require("dotenv").config({ path: path.join(__dirname, "../.env") }); // updated to use __dirname
     return {
       DEV_URL: process.env.DEV_URL,
       BASE_URL: process.env.BASE_URL,
-      OS: process.env.OS
+      OS: process.env.OS,
     };
   }
   return null;
 }
 
-ipcMain.on('save-config', (event, data) => {
+ipcMain.on("save-config", (event, data) => {
   const envContent = `DEV_URL=${data.devUrl}\nBASE_URL=${data.baseUrl}\nOS=${data.os}\n`;
   fs.writeFileSync(envPath, envContent);
-  require('dotenv').config({ path: envPath }); // reload env
-  event.sender.send('config-saved');
+  require("dotenv").config({ path: envPath }); // reload env
+  event.sender.send("config-saved");
 });
 
 function isValidUrl(url) {
@@ -39,17 +43,17 @@ function isValidUrl(url) {
   }
 }
 
-ipcMain.on('save-config', (event, config) => {
-    const envContent = `
+ipcMain.on("save-config", (event, config) => {
+  const envContent = `
 OS=${config.os}
 PLATFORM=${config.platform}
 DEV_SERVER=${config.devServer}
 BASE_URL=${config.baseUrl}
     `.trim();
 
-    fs.writeFileSync(path.join(__dirname, '.env'), envContent, 'utf8');
+  fs.writeFileSync(path.join(__dirname, ".env"), envContent, "utf8");
 
-    console.log('.env file updated!');
+  console.log(".env file updated!");
 });
 
 function createWindow() {
@@ -62,21 +66,21 @@ function createWindow() {
       nodeIntegration: true, // allow require in setup.html
       contextIsolation: false,
       webviewTag: true,
-    }
+    },
   });
 
   const config = loadEnvConfig();
 
   if (!config || !config.BASE_URL || !isValidUrl(config.BASE_URL)) {
-    win.loadFile('setup.html');
-    ipcMain.once('config-saved', () => {
+    win.loadFile(path.join(__dirname, "html/setup.html")); // corrected relative path
+    ipcMain.once("config-saved", () => {
       const newConfig = loadEnvConfig();
       if (newConfig && newConfig.BASE_URL && isValidUrl(newConfig.BASE_URL)) {
         win.loadURL(newConfig.BASE_URL);
       }
     });
   } else {
-    win.loadURL(config.BASE_URL);
+    win.loadURL(config.BASE_URL); // no change needed here
   }
 }
 
@@ -88,12 +92,12 @@ Menu.setApplicationMenu(menu);
 app.whenReady().then(() => {
   createWindow();
 
-  app.on('activate', () => {
+  app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 // quits the app when everything is closed
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
 });

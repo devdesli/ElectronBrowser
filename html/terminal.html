@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>SSH Terminal</title>
+    <link rel="stylesheet" href="../node_modules/xterm/css/xterm.css" />
+    <style>
+      body {
+        background: #181818;
+        color: #eee;
+        margin: 0;
+        font-family: sans-serif;
+      }
+      #terminal {
+        width: 100vw;
+        height: 100vh;
+        background: black;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="terminal"></div>
+    <script src="../node_modules/xterm/lib/xterm.js"></script>
+    <script src="../node_modules/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+    <script src="../js/terminal.js"></script>
+  </body>
+</html>

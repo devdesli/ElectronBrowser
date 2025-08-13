@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>First-Run Setup</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        max-width: 600px;
+        margin: 40px auto;
+        padding: 20px;
+      }
+      h1 {
+        text-align: center;
+      }
+      label {
+        font-weight: bold;
+        display: block;
+        margin-top: 15px;
+      }
+      input {
+        width: 100%;
+        padding: 8px;
+        margin-top: 5px;
+        font-size: 14px;
+      }
+      button {
+        margin-top: 20px;
+        padding: 10px 20px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>First-Run Setup</h1>
+    <form id="setupForm">
+      <label for="devUrl">Dev Server URL</label>
+      <input
+        type="text"
+        id="devUrl"
+        name="devUrl"
+        placeholder="http://localhost:3000"
+      />
+
+      <label for="baseUrl">Base URL</label>
+      <input
+        type="text"
+        id="baseUrl"
+        name="baseUrl"
+        placeholder="https://example.com"
+      />
+
+      <label for="os">Detected OS</label>
+      <input type="text" id="os" name="os" readonly />
+
+      <button type="submit">Save & Continue</button>
+      <button type="button" id="skipBtn">Skip</button>
+    </form>
+
+    <script>
+      // Fill OS field using Node.js process.platform
+      const os = require("os");
+      document.getElementById("os").value = os.type() + " " + os.release();
+
+      const { ipcRenderer } = require("electron");
+
+      document.getElementById("setupForm").addEventListener("submit", (e) => {
+        e.preventDefault();
+
+        const data = {
+          devUrl: document.getElementById("devUrl").value.trim(),
+          baseUrl: document.getElementById("baseUrl").value.trim(),
+          os: document.getElementById("os").value, // detected OS
+        };
+
+        // Send data to main process to save
+        ipcRenderer.send("save-config", data);
+      });
+
+      document.getElementById("skipBtn").addEventListener("click", () => {
+        const data = {
+          devUrl: "",
+          baseUrl: "https://www.google.com",
+          os: document.getElementById("os").value,
+        };
+        ipcRenderer.send("save-config", data);
+      });
+
+      ipcRenderer.on("config-saved", () => {
+        // After saving config, load the BASE_URL page
+        window.location =
+          document.getElementById("baseUrl").value.trim() ||
+          "https://www.google.com";
+      });
+    </script>
+    <script>
+      const { ipcRenderer } = require("electron");
+
+      document
+        .getElementById("setupForm")
+        .addEventListener("submit", (event) => {
+          event.preventDefault();
+
+          const config = {
+            os: document.getElementById("os").value,
+            platform: document.getElementById("platform").value,
+            devServer: document.getElementById("devServer").value,
+            baseUrl: document.getElementById("baseUrl").value,
+          };
+
+          ipcRenderer.send("save-config", config);
+        });
+    </script>
+  </body>
+</html>
