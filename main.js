@@ -1,4 +1,9 @@
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
+console.log(os.platform());   // 'win32', 'linux', 'darwin'
+console.log(os.release());    // e.g. '6.1.7601'
+console.log(os.type());       // 'Windows_NT', 'Linux', etc.
 
 require('dotenv').config();
 
@@ -9,27 +14,45 @@ require('electron-reload')(path.join(__dirname), {
   electron: require(`${__dirname}/node_modules/electron`)
 });
 
-const { dialog, app, BrowserWindow, Menu } = require('electron');
+const { dialog, app, BrowserWindow, Menu, ipcMain } = require('electron');
+const { setupIfNeeded } = require('./config');
 const menuTemplate = require('./menu');
 // disables ssl certificate checks
 app.commandLine.appendSwitch('ignore-certificate-errors');
 
+const configPath = path.join(app.getPath('userData'), 'config.json');
+
+ipcMain.on('save-config', (event, data) => {
+  fs.writeFileSync(configPath, JSON.stringify(data, null, 2));
+  console.log('Config saved to', configPath);
+  event.sender.send('config-saved');
+});
+
 function createWindow() {
   const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    webPreferences: {
-      javascript: true,
-      webSecurity: false,
-      nodeIntegration: false,
-      contextIsolation: true,
-      webviewTag: true,
+      width: 800,
+      height: 600,
+      webPreferences: {
+        javascript: true,
+        webSecurity: false,
+        nodeIntegration: false,
+        contextIsolation: true,
+        webviewTag: true,
+      }
+    });
+  
+    const config = setupIfNeeded(win);
+  
+    if (config) {
+      console.log('Config loaded:', config);
+      if (config.baseUrl) {
+        win.loadURL(config.baseUrl);
+      } else {
+        win.loadFile('setup.html');
+      }
     }
-  });
-  //url that loads when the app starts replace this with your own url
-  win.loadURL(process.env.BASE_URL);
-}
-
+  }
+  
 //sets the application menu changable
 const menu = Menu.buildFromTemplate(menuTemplate);
 Menu.setApplicationMenu(menu);

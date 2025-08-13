@@ -1,4 +1,5 @@
 const { BrowserWindow, dialog } = require('electron');
+require('dotenv').config();
 
 const menuTemplate = [
   {
@@ -45,6 +46,14 @@ const menuTemplate = [
   {
     label: 'Navigation',
     submenu: [
+        {
+            label: 'Home',
+            click: (menuItem, browserWindow) => {
+              if (browserWindow && browserWindow.webContents) {
+                browserWindow.webContents.loadURL(process.env.BASE_URL);
+              }
+            }
+      },
       {
         label: 'Back',
         click: (menuItem, browserWindow) => {
