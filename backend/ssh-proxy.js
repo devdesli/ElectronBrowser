@@ -122,12 +122,10 @@ async function initializeServers() {
   
   if (!wsPortAvailable) {
     console.error(`Port ${WS_PORT} is still in use. Trying to start anyway...`);
-    // Don't exit, try to start anyway
   }
   
   if (!apiPortAvailable) {
     console.error(`Port ${API_PORT} is still in use. Trying to start anyway...`);
-    // Don't exit, try to start anyway
   }
   
   console.log('Starting servers...');
@@ -165,12 +163,20 @@ wss.on("connection", (ws) => {
   const cleanup = () => {
     if (stream) {
       stream.removeAllListeners();
-      stream.end();
+      try {
+        stream.end();
+      } catch (e) {
+        console.log("Stream cleanup error:", e.message);
+      }
       stream = null;
     }
     if (ssh) {
       ssh.removeAllListeners();
-      ssh.end();
+      try {
+        ssh.end();
+      } catch (e) {
+        console.log("SSH cleanup error:", e.message);
+      }
       ssh = null;
     }
   };
@@ -200,7 +206,7 @@ wss.on("connection", (ws) => {
           console.log("SSH connection established successfully");
           ws.send(JSON.stringify({ type: "status", message: "SSH Connected" }));
           
-          // Request a shell
+          // Request a shell with proper dimensions
           ssh.shell({
             cols: 80,
             rows: 24,
@@ -215,47 +221,59 @@ wss.on("connection", (ws) => {
             stream = shellStream;
             console.log("Shell stream created successfully");
             
-            // Handle data from SSH server
+            // Handle data from SSH server - THIS IS THE KEY FIX
             stream.on("data", (d) => {
-              const data = d.toString();
-              // Don't log every data packet as it can be overwhelming
-              ws.send(JSON.stringify({ type: "data", data: data }));
+              if (ws.readyState === ws.OPEN) {
+                const data = d.toString('utf8');
+                // Send raw data directly to terminal
+                ws.send(JSON.stringify({ type: "data", data: data }));
+              }
             });
             
             // Handle stream close
-            stream.on("close", () => {
-              console.log("SSH stream closed");
-              ws.send(JSON.stringify({ type: "status", message: "SSH Stream Closed" }));
+            stream.on("close", (code, signal) => {
+              console.log("SSH stream closed, code:", code, "signal:", signal);
+              if (ws.readyState === ws.OPEN) {
+                ws.send(JSON.stringify({ type: "status", message: "SSH Stream Closed" }));
+              }
               cleanup();
             });
             
             // Handle stream errors
             stream.on("error", (err) => {
               console.error("Stream error:", err);
-              ws.send(JSON.stringify({ type: "error", message: `Stream error: ${err.message}` }));
+              if (ws.readyState === ws.OPEN) {
+                ws.send(JSON.stringify({ type: "error", message: `Stream error: ${err.message}` }));
+              }
             });
             
-            // Send ready status
+            // Send ready status after a brief delay
             setTimeout(() => {
               console.log("Terminal ready for input");
-              ws.send(JSON.stringify({ type: "status", message: "Terminal ready" }));
+              if (ws.readyState === ws.OPEN) {
+                ws.send(JSON.stringify({ type: "status", message: "Terminal ready" }));
+              }
             }, 500);
           });
         });
         
         ssh.on("error", (err) => {
           console.error("SSH connection error:", err.message);
-          ws.send(JSON.stringify({ type: "error", message: `SSH Error: ${err.message}` }));
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: "error", message: `SSH Error: ${err.message}` }));
+          }
           cleanup();
         });
         
         ssh.on("end", () => {
           console.log("SSH connection ended");
-          ws.send(JSON.stringify({ type: "status", message: "SSH Connection Ended" }));
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: "status", message: "SSH Connection Ended" }));
+          }
         });
         
-        ssh.on("close", () => {
-          console.log("SSH connection closed");
+        ssh.on("close", (hadError) => {
+          console.log("SSH connection closed, hadError:", hadError);
           cleanup();
         });
 
@@ -265,7 +283,25 @@ wss.on("connection", (ws) => {
           port: data.port || 22,
           username: data.username,
           readyTimeout: 20000,
-          keepaliveInterval: 30000
+          keepaliveInterval: 30000,
+          // Add algorithms to improve compatibility
+          algorithms: {
+            kex: [
+              'diffie-hellman-group-exchange-sha256',
+              'diffie-hellman-group14-sha256',
+              'diffie-hellman-group16-sha512',
+              'diffie-hellman-group18-sha512',
+              'diffie-hellman-group-exchange-sha1',
+              'diffie-hellman-group14-sha1'
+            ],
+            cipher: [
+              'aes128-ctr',
+              'aes192-ctr', 
+              'aes256-ctr',
+              'aes128-gcm',
+              'aes256-gcm'
+            ]
+          }
         };
 
         // Add authentication
@@ -291,15 +327,23 @@ wss.on("connection", (ws) => {
       }
       
       // Handle terminal input
-      else if (data.type === "input" && stream) {
-        // Log input only for debugging, comment out in production
-        // console.log('Terminal input:', JSON.stringify(data.data));
-        stream.write(data.data);
+      else if (data.type === "input" && stream && stream.writable) {
+        // Write input data to SSH stream
+        try {
+          stream.write(data.data);
+        } catch (error) {
+          console.error("Failed to write to stream:", error);
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: "error", message: "Failed to send input to SSH" }));
+          }
+        }
       }
       
     } catch (e) {
       console.error("Message parsing error:", e);
-      ws.send(JSON.stringify({ type: "error", message: `Protocol error: ${e.message}` }));
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: "error", message: `Protocol error: ${e.message}` }));
+      }
     }
   });
 

@@ -1,6 +1,3 @@
-const { Terminal } = require("xterm");
-const { FitAddon } = require("xterm-addon-fit");
-
 // Initialize xterm.js terminal
 const term = new Terminal({
   cursorBlink: true,
@@ -23,6 +20,7 @@ window.term = term;
 
 let ws = null;
 let isConnected = false;
+let connectionAttempted = false;
 
 // Parse connection parameters from URL
 function getConnectionParams() {
@@ -47,13 +45,20 @@ function connectToSSH() {
     const error = "Missing host or username parameters";
     console.error(error);
     term.writeln("\r\n\x1b[31m[ERROR] " + error + "\x1b[0m");
-    term.writeln(
-      "\x1b[33m[DEBUG] URL params:",
-      window.location.search,
-      "\x1b[0m"
-    );
+    if (window.updateConnectionStatus) {
+      window.updateConnectionStatus("disconnected");
+    }
     return;
   }
+
+  // Clean up any existing connection
+  if (ws) {
+    ws.close();
+    ws = null;
+  }
+
+  connectionAttempted = true;
+  isConnected = false;
 
   // Update window title
   document.title = `SSH Terminal - ${params.name}`;
@@ -61,21 +66,19 @@ function connectToSSH() {
   term.writeln(
     `\r\n\x1b[36m[INFO] Connecting to ${params.username}@${params.host}:${params.port}...\x1b[0m`
   );
-  term.writeln(
-    `\x1b[33m[DEBUG] WebSocket connecting to ws://localhost:3001\x1b[0m`
-  );
+
+  if (window.updateConnectionStatus) {
+    window.updateConnectionStatus("connecting");
+  }
 
   // Connect to your SSH proxy WebSocket server
   ws = new WebSocket("ws://localhost:3001");
 
   ws.onopen = () => {
-    console.log("WebSocket connected");
+    console.log("WebSocket connected to SSH proxy");
     term.writeln(
-      "\x1b[32m[INFO] WebSocket connected, establishing SSH connection...\x1b[0m"
+      "\x1b[32m[INFO] WebSocket connected, establishing SSH...\x1b[0m"
     );
-    if (window.updateConnectionStatus) {
-      window.updateConnectionStatus("connecting");
-    }
 
     // Send connection request to SSH proxy
     const connectMessage = {
@@ -88,98 +91,163 @@ function connectToSSH() {
     // Add authentication
     if (params.password) {
       connectMessage.password = params.password;
-      term.writeln("\x1b[33m[DEBUG] Using password authentication\x1b[0m");
     }
     if (params.privateKey) {
       connectMessage.privateKey = params.privateKey;
-      term.writeln("\x1b[33m[DEBUG] Using private key authentication\x1b[0m");
     }
 
     console.log("Sending connect message:", {
       ...connectMessage,
-      password: "***",
+      password: params.password ? "***" : "",
       privateKey: connectMessage.privateKey ? "***" : "",
     });
+
     ws.send(JSON.stringify(connectMessage));
   };
 
   ws.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data);
+      console.log("Received message:", message.type, message);
 
       switch (message.type) {
         case "data":
           // SSH output data - write directly to terminal
+          // This is the actual terminal data from the SSH connection
           term.write(message.data);
+
+          // Mark as connected when we receive the first data
           if (!isConnected) {
             isConnected = true;
-            term.writeln(
-              "\r\n\x1b[32m[INFO] SSH connection established!\x1b[0m"
-            );
+            if (window.updateConnectionStatus) {
+              window.updateConnectionStatus("connected");
+            }
+            console.log("SSH connection established - receiving data");
           }
           break;
 
         case "status":
           // Status messages from SSH proxy
-          term.writeln(`\r\n\x1b[33m[${message.message}]\x1b[0m`);
+          console.log("SSH Status:", message.message);
+
           if (message.message === "SSH Connected") {
-            isConnected = true;
-            // Update status in header if function exists
+            term.writeln(`\r\n\x1b[32m[${message.message}]\x1b[0m`);
             if (window.updateConnectionStatus) {
               window.updateConnectionStatus("connected");
             }
           } else if (message.message === "Terminal ready") {
-            // Terminal is ready for input
+            term.writeln(`\x1b[33m[${message.message}]\x1b[0m`);
             term.focus();
+            // Don't mark as connected yet - wait for actual data
+          } else if (
+            message.message.includes("Connection Ended") ||
+            message.message.includes("Stream Closed")
+          ) {
+            term.writeln(`\r\n\x1b[33m[${message.message}]\x1b[0m`);
+            isConnected = false;
+            if (window.updateConnectionStatus) {
+              window.updateConnectionStatus("disconnected");
+            }
+          } else {
+            // Other status messages
+            term.writeln(`\r\n\x1b[36m[${message.message}]\x1b[0m`);
+          }
+          break;
+
+        case "status":
+          // Status messages from SSH proxy
+          console.log("SSH Status:", message.message);
+          term.writeln(`\r\n\x1b[36m[INFO] ${message.message}\x1b[0m`);
+
+          if (message.message === "SSH Connected") {
+            // The SSH backend has confirmed the connection, so we can consider it active.
+            isConnected = true;
+            if (window.updateConnectionStatus) {
+              window.updateConnectionStatus("connected");
+            }
+            term.focus();
+          } else if (
+            message.message.includes("Connection Ended") ||
+            message.message.includes("Stream Closed")
+          ) {
+            isConnected = false;
+            if (window.updateConnectionStatus) {
+              window.updateConnectionStatus("disconnected");
+            }
           }
           break;
 
         case "error":
           // Error messages
           term.writeln(`\r\n\x1b[31m[ERROR] ${message.message}\x1b[0m`);
+          isConnected = false;
+          if (window.updateConnectionStatus) {
+            window.updateConnectionStatus("disconnected");
+          }
+          console.error("SSH Error:", message.message);
           break;
 
         default:
           console.log("Unknown message type:", message);
+          // Try to display unknown messages as info
+          if (message.message) {
+            term.writeln(`\r\n\x1b[36m[${message.message}]\x1b[0m`);
+          }
       }
     } catch (e) {
       console.error("Failed to parse WebSocket message:", e);
-      term.write(event.data); // Fallback: write raw data
+      console.log("Raw message:", event.data);
+      // For non-JSON messages, try to display them directly
+      if (typeof event.data === "string") {
+        term.write(event.data);
+      }
     }
   };
 
   ws.onclose = (event) => {
+    console.log("WebSocket closed:", event.code, event.reason);
     isConnected = false;
     if (window.updateConnectionStatus) {
       window.updateConnectionStatus("disconnected");
     }
-    if (event.wasClean) {
-      term.writeln("\r\n\x1b[33m[INFO] Connection closed\x1b[0m");
-    } else {
-      term.writeln("\r\n\x1b[31m[ERROR] Connection lost\x1b[0m");
+
+    if (connectionAttempted) {
+      if (event.wasClean) {
+        term.writeln("\r\n\x1b[33m[INFO] Connection closed cleanly\x1b[0m");
+      } else {
+        term.writeln("\r\n\x1b[31m[ERROR] Connection lost unexpectedly\x1b[0m");
+        term.writeln("\x1b[33m[INFO] Try reconnecting with Ctrl+R\x1b[0m");
+      }
     }
   };
 
   ws.onerror = (error) => {
+    console.error("WebSocket error:", error);
+    isConnected = false;
     if (window.updateConnectionStatus) {
       window.updateConnectionStatus("disconnected");
     }
     term.writeln("\r\n\x1b[31m[ERROR] WebSocket connection failed\x1b[0m");
-    term.writeln("\x1b[33m[INFO] Make sure the SSH backend is running\x1b[0m");
-    console.error("WebSocket error:", error);
+    term.writeln(
+      "\x1b[33m[INFO] Make sure the SSH backend is running on port 3001\x1b[0m"
+    );
+    term.writeln("\x1b[33m[INFO] Try reconnecting with Ctrl+R\x1b[0m");
   };
 }
 
 // Handle terminal input
 term.onData((data) => {
-  if (ws && ws.readyState === WebSocket.OPEN && isConnected) {
-    // Send input to SSH proxy
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    // Send input to SSH proxy - don't wait for isConnected flag
+    // The backend will handle queuing if SSH isn't ready yet
     ws.send(
       JSON.stringify({
         type: "input",
         data: data,
       })
     );
+  } else {
+    console.log("Cannot send input - WebSocket not ready");
   }
 });
 
@@ -190,14 +258,17 @@ window.addEventListener("resize", () => {
 
 // Handle window close
 window.addEventListener("beforeunload", () => {
-  if (ws) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
     ws.close();
   }
 });
 
 // Auto-connect when page loads
 document.addEventListener("DOMContentLoaded", () => {
-  connectToSSH();
+  // Add a small delay to ensure everything is initialized
+  setTimeout(() => {
+    connectToSSH();
+  }, 100);
 });
 
 // Keyboard shortcuts
@@ -205,12 +276,23 @@ document.addEventListener("keydown", (e) => {
   // Ctrl+R or Cmd+R to reconnect
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r") {
     e.preventDefault();
+    term.writeln("\r\n\x1b[33m[INFO] Reconnecting...\x1b[0m");
+    connectionAttempted = false;
+    isConnected = false;
     if (ws) {
       ws.close();
     }
     setTimeout(() => {
       connectToSSH();
     }, 100);
+  }
+
+  // Ctrl+C to interrupt (send SIGINT)
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+    if (ws && ws.readyState === WebSocket.OPEN && isConnected) {
+      e.preventDefault();
+      ws.send(JSON.stringify({ type: "input", data: "\x03" })); // Send Ctrl+C
+    }
   }
 
   // F12 to open DevTools (if in Electron)
