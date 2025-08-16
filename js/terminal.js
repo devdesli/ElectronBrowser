@@ -7,7 +7,7 @@ const term = new Terminal({
     foreground: "#ffffff",
   },
 });
-
+// error with fitaddon
 const fitAddon = new FitAddon();
 term.loadAddon(fitAddon);
 
